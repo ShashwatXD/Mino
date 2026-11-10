@@ -2,7 +2,7 @@
 
 > **Search is the easy half. Time is the hard half.**
 
-"Has any pricing changed since last Tuesday?" asks an agent to know what it said, when it said it, and whether that still holds today. Mino keeps every conversation as a dated record, finds the right one, and checks it again on the web.
+"Has pricing changed since last Tuesday?" needs an agent that knows what it said, when it said it, and whether it still holds. Mino keeps every chat as a dated record, finds the right one, and checks it again on the web.
 
 ## How it works
 
@@ -21,72 +21,60 @@ flowchart TD
     E -.-> B["In the background<br/>save the turn · update the chat summary"]
 ```
 
-The model only calls `web_search`. Memory is code that runs before it, so the past is already in the prompt.
+The model has one tool, `web_search`. Memory is plain code that runs first, so the past is already in the prompt.
 
-| What the model sees | When |
+**Every prompt carries** the time, stated facts, summaries of the 15 latest chats, and this chat. **When a date or "what changed" comes up**, it also carries the exact past turns, with sources and timestamps.
+
+The always-on layers follow [ChatGPT's memory](https://llmrefs.com/blog/reverse-engineering-chatgpt-memory), summarizing older turns follows [LobeHub](https://github.com/lobehub/lobe-chat), and the clarifying step follows [Vane](https://github.com/ItzCrazyKns/Vane/blob/master/docs/architecture/WORKING.md). Exact-turn recall is Mino's own: a summary says pricing came up, but only the record has the price and the date.
+
+| Ask | Mino |
 | --- | --- |
-| Time and time zone | Always |
-| Facts the user stated | Always |
-| Summaries of the 15 most recent chats | Always |
-| This chat: recent turns, older ones summarized | Always |
-| Exact past turns, with sources and dates | When the message names a date or asks what changed |
-
-The first four layers follow [ChatGPT's memory, as reverse-engineered in public](https://llmrefs.com/blog/reverse-engineering-chatgpt-memory). The clarifying step follows [Vane](https://github.com/ItzCrazyKns/Vane/blob/master/docs/architecture/WORKING.md), an open-source answer engine. The last layer is Mino's own: a summary says pricing came up, but only the record shows the price and the date.
-
-| The user asks | A matching chat exists | Nothing matches |
-| --- | --- | --- |
-| "Last Tuesday I asked you about Postgres hosting. Has any pricing changed since then?" *(from the brief)* | Loads Tuesday's answer, searches each provider, and gives the old price, today's price and both dates | Says there is no record for Tuesday, then gives current pricing |
-| "What did I ask you yesterday about my Goa trip?" | Quotes the question and answer, with the time | Says nothing was logged that day, and invents nothing |
-| "Which laptop did you suggest last week? Is it still the best pick?" | Finds last week's pick, searches for its price and newer models, and says what changed | Says there is no record, then gives a current pick |
+| "Last Tuesday I asked about Postgres hosting. Has pricing changed?" | Loads Tuesday's answer, searches again, and shows old vs new price with both dates |
+| "What did I ask yesterday about my Goa trip?" | Quotes the question and the time. With no record, says so and invents nothing |
 
 ## Decisions
 
-| Decision | Why | Cost |
-| --- | --- | --- |
-| **Recall runs in code, not as a tool** | The brief allows one tool. Every date question is checked, with no extra round trip. Provider-side state differs per provider and keeps a transcript, not a dated search across chats | The model cannot look further mid-answer |
-| **One finding per message** | The model is told in one sentence: found that day, found on another day, found by topic, or nothing | Each new case needs a named finding |
-| **Exact log, plus summaries** | Summaries keep prompts small. The log stays the source of truth for exact words and prices | A summary lags one reply behind |
-| **Code first, small model only when unclear** | Dates and typos resolve in milliseconds. The small model runs only for vague or unmatched references, and the reply goes on if it fails | Rare phrasings depend on it |
-| **No vector database** | These lookups are dates and names. A trigram index plus edit distance handles typos with no extra service | The same idea in other words can be missed |
-| **Bounded, cache-friendly prompt** | History is capped at 30,000 characters and recall at 16,000. Stable parts come first, so providers reuse the cached prefix | Very old turns of a long chat are only summarized |
-| **The server owns each reply** | Numbered events let any tab resume after a refresh or dropped network. Drafts save every 400 ms | One process holds live replies |
-| **Hard spending limits** | Every reply has output, search and time caps. A daily budget refuses messages before any model call | Long research can hit a cap |
-| **One event stream for three engines** | Gemini, Claude and OpenAI map to the same events, and shared tests check they match | Gemini cannot cap its own searches |
+- **Recall in code, not a tool.** The brief allows one tool, and a date question should never depend on the model choosing to look. *Cost: the model can't dig deeper mid-answer.*
+- **One finding per message.** The model is told plainly: found that day, found another day, found by topic, or nothing. *Cost: each new case needs a name.*
+- **Exact log plus summaries.** Summaries keep prompts small. The log stays the truth for exact words and prices. *Cost: a summary lags one reply.*
+- **Code first, small model rarely.** Dates and typos resolve in milliseconds. The small model runs only for vague references, and the reply goes on if it fails.
+- **No vector database.** These lookups are dates and names, and a trigram index with edit distance covers typos. *Cost: the same idea in other words can be missed.*
+- **Bounded, cache-friendly prompt.** History is capped at 30k characters and recall at 16k, with stable parts first so providers reuse the cache.
+- **The server owns each reply.** Numbered events let any tab resume after a refresh or dropped network.
+- **Hard spending limits.** Output, search and time caps on every reply, plus a daily budget checked before any model call.
+- **One event stream, three engines.** Gemini, Claude and OpenAI map to the same events, and one test checks they match.
 
 Web results and old chats are escaped and marked as data, so instructions inside them are ignored.
 
-## Code layout
+## Fast by design
 
-| Layer | Holds |
-| --- | --- |
-| `http` | Routes only: parse the request, call a service |
-| `services` | The reply flow, settings, spending limits |
-| `context` | Builds the prompt, writes chat summaries and titles |
-| `memory` | Recall, ranking, fact rules, prompt rendering |
-| `llm` | One adapter per provider, plus the small model |
-| `db/repositories` | Turns, threads, summaries, facts, usage |
+One model round trip per answer, recall in milliseconds, the small model only when needed, a cached prompt prefix, and tokens streamed as they arrive.
 
-Each layer imports only the layers below it, so swapping SQLite for Postgres touches only `db`.
+## Models
 
-## How it scales
+**Gemini 3.1 Flash-Lite** is the default: fast, cheap, with Google Search built in. A Claude or OpenAI key works too. The matching small model (Flash-Lite, Haiku 5.5, gpt-6-luna) clarifies messages and writes summaries and titles.
 
-Everything lives in one SQLite file, so `npm install` and `npm run dev` are enough. On a laptop, a date lookup takes 1 ms at 100,000 chats, and typo-tolerant search takes 80–140 ms. Prompt size does not grow with history. More users would need a user ID on each row, Postgres, and a shared store for live replies. Recall would not change.
+## Code
 
-## What I rejected
+`http` → `services` → `context` → `memory` · `llm` → `db/repositories`. Each layer imports only the ones below it, so moving to Postgres touches only `db`. 156 tests cover recall, streaming, spending and engine parity.
 
-| Option | Why not |
-| --- | --- |
-| A history tool | The brief says one tool. If that reading is wrong, I would add it so the model can look further mid-answer |
-| Provider-side memory | OpenAI can store conversations and Claude has a memory tool, but each works differently, and Claude's is a second tool |
-| Sending all history | Slow and costly on every message |
-| My own search pipeline | Hosted search already returns results with citations |
-| Next.js | A chat needs one page and one streaming endpoint |
+## Scale
+
+One SQLite file, so `npm install` and `npm run dev` are enough. At 100,000 chats a date lookup takes 1 ms and typo search 80–140 ms. Prompt size stays flat as history grows. More users would need user IDs, Postgres and a shared store for live replies.
+
+## Rejected
+
+- **A history tool:** the brief says one tool.
+- **Provider-side memory:** differs per provider, and Claude's is a second tool.
+- **Vercel AI SDK:** each provider's search and citations differ, and I wanted to map and test them directly.
+- **Sending all history:** slow and costly on every message.
+- **Own search pipeline:** hosted search already cites its sources.
+- **Next.js:** one page and one streaming endpoint don't need it.
 
 ## With another week
 
-1. Measure speed and accuracy on real models. I have not yet.
-2. Make web search stateful, so a follow-up continues earlier searches instead of starting over.
-3. Snapshot official pricing pages, so "unchanged" can be proven.
-4. Store prices as dated facts for exact comparison.
-5. Add embeddings for the same idea in different words.
-6. Add a profile in Settings, like ChatGPT's custom instructions, with a list of saved facts the user can delete.
+1. Measure speed and accuracy on real models.
+2. Stateful search, so a follow-up continues earlier searches.
+3. Snapshot pricing pages, so "unchanged" can be proven.
+4. Embeddings for the same idea in different words.
+5. A Settings profile, like ChatGPT's custom instructions, with editable saved facts.
