@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { runTurn } from "../src/engines/anthropic.ts";
-import { runGemini } from "../src/engines/gemini.ts";
-import { runOpenAI } from "../src/engines/openai.ts";
-import { EMPTY_TEXT, MAX_OUTPUT_TOKENS, type AgentEvent, type TurnOptions } from "../src/engines/shared.ts";
+import { runTurn } from "../src/llm/providers/anthropic.ts";
+import { runGemini } from "../src/llm/providers/gemini.ts";
+import { runOpenAI } from "../src/llm/providers/openai.ts";
+import { EMPTY_TEXT, MAX_OUTPUT_TOKENS } from "../src/llm/prompt.ts";
+import { type AgentEvent, type TurnOptions } from "../src/llm/types.ts";
 
 const URL = "https://neon.tech/pricing";
 const usage = { input: 100, output: 20 };

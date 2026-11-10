@@ -5,10 +5,10 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import { loadConfig } from "../src/config.ts";
-import { createApp } from "../src/server.ts";
-import { SettingsManager } from "../src/settings.ts";
-import { Store } from "../src/store.ts";
+import { loadConfig } from "../src/config/config.ts";
+import { createApp } from "../src/http/app.ts";
+import { SettingsManager } from "../src/services/settings.ts";
+import { createRepositories } from "../src/db/repositories/index.ts";
 
 const GEMINI = "AIzaSyA1234567890abcdefghijklmnopqrstuv";
 const OTHER_GEMINI = "AIzaSyZ0987654321zyxwvutsrqponmlkjihgfe";
@@ -143,7 +143,7 @@ after(() =>
 
 async function api() {
   const settings = manager();
-  const server = createServer(createApp({ store: new Store(":memory:"), settings, run: async () => ({ text: "", sources: [], queries: [], stopReason: null }) }));
+  const server = createServer(createApp({ store: createRepositories(":memory:"), settings, run: async () => ({ text: "", sources: [], queries: [], stopReason: null }) }));
   servers.push(server);
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;

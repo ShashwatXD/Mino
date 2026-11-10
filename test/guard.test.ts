@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, test } from "node:test";
-import { DEFAULT_MODELS, loadConfig, type Limits } from "../src/config.ts";
-import { costOf, SpendGuard } from "../src/guard.ts";
-import { createApp } from "../src/server.ts";
-import { Store } from "../src/store.ts";
+import { DEFAULT_MODELS, loadConfig, type Limits } from "../src/config/config.ts";
+import { costOf, SpendGuard } from "../src/services/spend-guard.ts";
+import { createApp } from "../src/http/app.ts";
+import { createRepositories } from "../src/db/repositories/index.ts";
 
 const limits: Limits = { dailyBudgetUsd: 1, maxPerMinute: 3, maxPerDay: 5, maxConcurrent: 2 };
 
@@ -30,9 +30,9 @@ test("an unknown model is priced high rather than treated as free", () => {
 });
 
 test("spending stops at the daily budget and resets the next day", () => {
-  const store = new Store(":memory:");
+  const store = createRepositories(":memory:");
   let now = Date.UTC(2026, 10, 10, 12);
-  const guard = new SpendGuard(store, limits, () => now);
+  const guard = new SpendGuard(store.usage, limits, () => now);
   assert.equal(guard.admit(0), null);
   guard.record({ model: "claude-sonnet-5-5", inputTokens: 0, outputTokens: 100_000, searches: 0 });
   now += 61_000;
@@ -42,15 +42,15 @@ test("spending stops at the daily budget and resets the next day", () => {
 });
 
 test("the budget survives a restart", () => {
-  const store = new Store(":memory:");
+  const store = createRepositories(":memory:");
   const now = Date.UTC(2026, 10, 10, 12);
-  new SpendGuard(store, limits, () => now).record({ model: "claude-sonnet-5-5", inputTokens: 0, outputTokens: 200_000, searches: 0 });
-  assert.match(new SpendGuard(store, limits, () => now).admit(0) ?? "", /spending limit/);
+  new SpendGuard(store.usage, limits, () => now).record({ model: "claude-sonnet-5-5", inputTokens: 0, outputTokens: 200_000, searches: 0 });
+  assert.match(new SpendGuard(store.usage, limits, () => now).admit(0) ?? "", /spending limit/);
 });
 
 test("rapid messages are slowed down", () => {
   let now = Date.UTC(2026, 10, 10, 12);
-  const guard = new SpendGuard(new Store(":memory:"), limits, () => now);
+  const guard = new SpendGuard(createRepositories(":memory:").usage, limits, () => now);
   for (let i = 0; i < 3; i++) assert.equal(guard.admit(0), null);
   assert.match(guard.admit(0) ?? "", /wait a minute/);
   now += 61_000;
@@ -59,7 +59,7 @@ test("rapid messages are slowed down", () => {
 
 test("messages per day and parallel replies are capped", () => {
   let now = Date.UTC(2026, 10, 10, 12);
-  const guard = new SpendGuard(new Store(":memory:"), limits, () => now);
+  const guard = new SpendGuard(createRepositories(":memory:").usage, limits, () => now);
   assert.match(guard.admit(2) ?? "", /still running/);
   for (let i = 0; i < 5; i++) {
     assert.equal(guard.admit(0), null);
@@ -77,8 +77,8 @@ after(() =>
 );
 
 async function app(run: any, overrides: Partial<Limits> = {}, runTimeoutMs?: number) {
-  const store = new Store(":memory:");
-  const guard = new SpendGuard(store, { ...limits, ...overrides });
+  const store = createRepositories(":memory:");
+  const guard = new SpendGuard(store.usage, { ...limits, ...overrides });
   const server = createServer(createApp({ store, guard, run, runTimeoutMs }));
   servers.push(server);
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -98,7 +98,7 @@ test("a refused message never reaches the model or the log", async () => {
   assert.equal(res.status, 429);
   assert.match(await res.text(), /spending limit/);
   assert.equal(calls, 0);
-  assert.equal(store.thread("t").length, 0);
+  assert.equal(store.turns.ofThread("t").length, 0);
 });
 
 test("reported usage is added to today's spend", async () => {

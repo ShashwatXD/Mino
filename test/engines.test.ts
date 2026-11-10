@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ChatRequestSchema, ConfigError, loadConfig } from "../src/config.ts";
-import { geminiContents, runGemini } from "../src/engines/gemini.ts";
-import { runOpenAI } from "../src/engines/openai.ts";
-import type { AgentEvent } from "../src/engines/shared.ts";
-import { friendlyError } from "../src/server.ts";
+import { ChatRequestSchema, ConfigError, loadConfig } from "../src/config/config.ts";
+import { geminiContents, runGemini } from "../src/llm/providers/gemini.ts";
+import { runOpenAI } from "../src/llm/providers/openai.ts";
+import type { AgentEvent } from "../src/llm/types.ts";
+import { friendlyError } from "../src/services/errors.ts";
 
 const GEMINI = "AIzaSyA1234567890abcdefghijklmnopqrstuv";
 const CLAUDE = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz";

@@ -1,0 +1,227 @@
+let active = null;
+let viewGen = 0;
+const channel = (() => { try { return new BroadcastChannel("mino"); } catch { return null; } })();
+const newId = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const streamUrl = (id, after) => `/api/stream?threadId=${encodeURIComponent(id)}&after=${after}`;
+
+// Bumping the generation orphans any open stream, so its late events cannot land on the next view.
+function detach() {
+  viewGen++;
+  stopSpeaking();
+  if (active) {
+    clearInterval(active.watch);
+    if (active.frame) cancelAnimationFrame(active.frame);
+    active.local.abort();
+    active = null;
+  }
+  setBusy(false);
+}
+
+function beginStream(view, id, text) {
+  const s = { gen: viewGen, threadId: id, view, text, seq: 0, full: "", frame: 0, retries: 0, lastByte: Date.now(), local: new AbortController() };
+  // A silent connection (sleep, network change) is dropped and resumed from the last event seen.
+  s.watch = setInterval(() => { if (Date.now() - s.lastByte > 40000) s.local.abort(); }, 10000);
+  view.answer.classList.add("streaming");
+  active = s;
+  setBusy(true);
+  return s;
+}
+
+function paint(s) {
+  s.frame = 0;
+  const stick = nearBottom();
+  s.view.answer.innerHTML = html(s.full);
+  if (stick) toBottom();
+}
+
+// Hidden tabs do not run animation frames, so painting waits for visibilitychange.
+function schedulePaint(s) {
+  if (document.hidden || s.frame) return;
+  s.frame = requestAnimationFrame(() => paint(s));
+}
+
+function addNote(view, text, failed) {
+  view.wrap.append(el("div", "stamp mono note" + (failed ? " failed" : ""), text));
+}
+
+function finish(s, outcome, message) {
+  if (s !== active) return;
+  clearInterval(s.watch);
+  if (s.frame) cancelAnimationFrame(s.frame);
+  s.frame = 0;
+  active = null;
+  s.view.status.textContent = "";
+  s.view.answer.classList.remove("streaming");
+  paint(s);
+  if (outcome !== "failed" && s.full) addAnswerTools(s.view, s.full);
+  if (outcome === "stopped") addNote(s.view, s.full ? "Stopped" : "Stopped before answering");
+  if (outcome === "failed") {
+    const p = el("p", "failed", message);
+    const parent = s.view.wrap;
+    parent.append(p);
+    if (s.text) {
+      const retry = el("button", "ghost mono retry", "Try again");
+      retry.type = "button";
+      retry.addEventListener("click", () => { parent.previousElementSibling?.remove(); parent.remove(); ask(s.text); });
+      parent.append(retry);
+    }
+  }
+  setBusy(false);
+  channel?.postMessage({ threadId: s.threadId });
+  refreshChats();
+  if (!document.hidden && configured) input.focus();
+}
+
+/** Applies one event. Sequence numbers make a replay after reconnecting harmless. */
+function apply(s, e) {
+  if (e.seq <= s.seq) return false;
+  s.seq = e.seq;
+  s.retries = 0;
+  switch (e.type) {
+    case "text": s.full += e.text; s.view.status.textContent = ""; schedulePaint(s); break;
+    case "search": s.view.status.textContent = "Searching: " + e.query; break;
+    case "status": s.view.status.textContent = e.text; break;
+    case "sources": renderSources(s.view.sources, e.sources); break;
+    case "done": finish(s, "ok"); return true;
+    case "stopped": finish(s, "stopped"); return true;
+    case "error": finish(s, "failed", e.text); return true;
+  }
+  return false;
+}
+
+async function pump(s, res) {
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done || s.gen !== viewGen) return false;
+    s.lastByte = Date.now();
+    buffer += value;
+    const chunks = buffer.split("\n\n");
+    buffer = chunks.pop();
+    for (const chunk of chunks) {
+      if (!chunk.startsWith("data: ")) continue;
+      if (apply(s, JSON.parse(chunk.slice(6)))) return true;
+    }
+  }
+}
+
+async function follow(s, first) {
+  let res = first;
+  for (;;) {
+    if (res) {
+      let ended = false;
+      try { ended = await pump(s, res); } catch {}
+      if (ended || s !== active || s.gen !== viewGen) return;
+    }
+    if (++s.retries > 6) { finish(s, "failed", "Lost connection to the server."); return; }
+    s.view.status.textContent = "Reconnecting";
+    await sleep(400 * s.retries);
+    if (s !== active || s.gen !== viewGen) return;
+    s.local = new AbortController();
+    s.lastByte = Date.now();
+    try {
+      res = await fetch(streamUrl(s.threadId, s.seq), { signal: s.local.signal });
+    } catch { res = null; continue; }
+    if (s !== active || s.gen !== viewGen) return;
+    // 204 means the reply ended while disconnected, so the saved turn is the truth.
+    if (res.status === 204) { loadThread(s.threadId); return; }
+    if (!res.ok) res = null;
+  }
+}
+
+async function ask(text) {
+  if (active || !configured) return;
+  messages.querySelector(".hero")?.remove();
+  if (!threadId) {
+    threadId = newId();
+    history.pushState(null, "", "#" + threadId);
+    writeThread(threadId);
+  }
+  const id = threadId;
+  addUser(text, Date.now());
+  const view = addAnswer();
+  view.status.textContent = "Thinking";
+  toBottom();
+  const s = beginStream(view, id, text);
+
+  let res;
+  try {
+    res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadId: id, message: text, timezone }),
+      signal: s.local.signal,
+    });
+  } catch {
+    if (s === active) finish(s, "failed", "Could not reach the server. Is it still running?");
+    return;
+  }
+  if (s !== active) return;
+  if (res.status === 409) {
+    // Another tab is answering in this chat: keep what was typed and show its reply.
+    input.value = text;
+    sizeInput();
+    loadThread(id);
+    return;
+  }
+  if (!res.ok || !res.body) {
+    finish(s, "failed", (await res.text().catch(() => "")) || "The request failed.");
+    return;
+  }
+  channel?.postMessage({ threadId: id });
+  refreshChats();
+  follow(s, res);
+}
+
+function stop() {
+  if (!active) return;
+  send.disabled = true;
+  fetch("/api/stop", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ threadId: active.threadId }),
+  }).catch(() => { send.disabled = false; });
+}
+
+function renderSaved(t) {
+  addUser(t.userText, t.createdAt);
+  const view = addAnswer();
+  view.answer.innerHTML = html(t.assistantText || "");
+  renderSources(view.sources, t.sources);
+  if (t.status === "interrupted") addNote(view, t.assistantText ? "Stopped" : "Stopped before answering");
+  if (t.status === "failed") addNote(view, "This reply failed", true);
+  if (t.assistantText) addAnswerTools(view, t.assistantText);
+}
+
+async function loadThread(id, attempt = 0) {
+  detach();
+  const gen = viewGen;
+  threadId = id;
+  writeThread(id);
+  markActiveChat();
+  lastDay = null;
+  let turns = [];
+  try { turns = await (await fetch("/api/thread?id=" + encodeURIComponent(id))).json(); } catch {}
+  if (gen !== viewGen) return;
+  messages.replaceChildren();
+  if (!turns.length) { showEmpty(); return; }
+
+  const last = turns.at(-1);
+  const live = last.status === "streaming" ? last : null;
+  for (const t of turns) if (t !== live) renderSaved(t);
+
+  if (live) {
+    let res = null;
+    try { res = await fetch(streamUrl(id, 0)); } catch {}
+    if (gen !== viewGen) { res?.body?.cancel(); return; }
+    if (res?.status === 204 && attempt < 2) { loadThread(id, attempt + 1); return; }
+    addUser(live.userText, live.createdAt);
+    const view = addAnswer();
+    view.status.textContent = "Resuming";
+    const s = beginStream(view, id, live.userText);
+    follow(s, res && res.ok && res.status !== 204 ? res : null);
+  }
+  toBottom();
+}

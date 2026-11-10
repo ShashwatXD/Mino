@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildContext, needsUnderstanding, type Helpers } from "../src/context.ts";
-import { runTurn } from "../src/engines/anthropic.ts";
-import { recall } from "../src/memory.ts";
-import { Store } from "../src/store.ts";
+import { buildContext, needsUnderstanding, type Helpers } from "../src/context/build.ts";
+import { runTurn } from "../src/llm/providers/anthropic.ts";
+import { recall } from "../src/memory/recall.ts";
+import { createRepositories, type Repositories } from "../src/db/repositories/index.ts";
 
 const TZ = "Asia/Kolkata";
 const NOW = Date.UTC(2026, 10, 10, 6, 30);
@@ -11,8 +11,8 @@ const DAY = 86_400_000;
 const NOV3 = Date.UTC(2026, 10, 3, 6, 30);
 const NOV9 = Date.UTC(2026, 10, 9, 6, 30);
 
-const add = (store: Store, at: number, userText: string, assistantText = "ok") =>
-  store.save({ threadId: "old", createdAt: at, userText, assistantText, sources: [], queries: [], status: "ok" });
+const add = (store: Repositories, at: number, userText: string, assistantText = "ok") =>
+  store.turns.save({ threadId: "old", createdAt: at, userText, assistantText, sources: [], queries: [], status: "ok" });
 
 const usage = { model: "small", inputTokens: 10, outputTokens: 5, searches: 0 };
 
@@ -28,7 +28,7 @@ function understood(fields: object) {
   return { understand, calls };
 }
 
-const build = (store: Store, text: string, helpers?: Helpers) =>
+const build = (store: Repositories, text: string, helpers?: Helpers) =>
   buildContext({ store, text, now: NOW, tz: TZ, threadId: "current", history: [], excludeIds: new Set(), helpers });
 
 for (const text of [
@@ -37,7 +37,7 @@ for (const text of [
   "Last Tuesday I asked you about Postgres hosting. Has any pricing changed since then?",
 ]) {
   test(`the brief's example needs no small model: ${text.slice(0, 32)}`, async () => {
-    const store = new Store(":memory:");
+    const store = createRepositories(":memory:");
     add(store, NOV3, "Compare Postgres hosting prices", "Neon $19");
     add(store, NOV9, "Shortlist CRM tools for sales", "HubSpot, Pipedrive, Close, Zoho, Freshsales");
     const { understand, calls } = understood({});
@@ -50,7 +50,7 @@ for (const text of [
 }
 
 test("an ordinary question makes no extra model call", async () => {
-  const store = new Store(":memory:");
+  const store = createRepositories(":memory:");
   const { understand, calls } = understood({});
   const built = await build(store, "How does MVCC work in databases?", { understand });
   assert.equal(calls.length, 0);
@@ -58,47 +58,46 @@ test("an ordinary question makes no extra model call", async () => {
   assert.equal(built.usage.length, 0);
 });
 
-test("the gate opens for Hinglish, vague wording, and unmatched references", () => {
-  const store = new Store(":memory:");
-  const local = (text: string) => recall(store, text, NOW, TZ, new Set());
-  assert.equal(needsUnderstanding("kimat badli kya", local("kimat badli kya")), true);
-  assert.equal(needsUnderstanding("पिछले मंगल को क्या पूछा", local("पिछले मंगल को क्या पूछा")), true);
+test("the gate opens for vague wording and unmatched references, not for Hinglish alone", () => {
+  const store = createRepositories(":memory:");
+  const local = (text: string) => recall(store.turns, text, NOW, TZ, new Set());
+  assert.equal(needsUnderstanding("best laptop kya hai coding ke liye", local("best laptop kya hai coding ke liye")), false);
   assert.equal(needsUnderstanding("what about that one", local("what about that one")), true);
   assert.equal(needsUnderstanding("what did I ask earlier", local("what did I ask earlier")), true);
   assert.equal(needsUnderstanding("explain vector clocks", local("explain vector clocks")), false);
 });
 
 test("a date already found locally skips the small model, even in Hinglish", async () => {
-  const store = new Store(":memory:");
+  const store = createRepositories(":memory:");
   add(store, NOW - DAY, "Compare Postgres hosting");
   const { understand, calls } = understood({});
   await build(store, "kal kya poocha tha", { understand });
   assert.equal(calls.length, 0);
 });
 
-test("translated keywords find a chat written in another language", async () => {
-  const store = new Store(":memory:");
+test("keywords from the small model find a chat the message only hints at", async () => {
+  const store = createRepositories(":memory:");
   add(store, NOV3, "Compare database pricing", "Neon $19");
   const { understand } = understood({ intent: "recall", keywords: ["database", "pricing"] });
-  const built = await build(store, "database ki kimat kya thi", { understand });
+  const built = await build(store, "what did I ask about that one?", { understand });
   assert.match(built.found.turns[0]?.userText ?? "", /database pricing/);
   assert.equal(built.usage.length, 1);
 });
 
 test("a time range from the small model selects that day", async () => {
-  const store = new Store(":memory:");
+  const store = createRepositories(":memory:");
   add(store, NOV3, "Pizza dough recipe");
   add(store, NOV9, "Unrelated chat");
   const { understand } = understood({ time_range: { from: "2026-11-03", to: "2026-11-03" } });
-  const built = await build(store, "पिछले मंगल को क्या पूछा", { understand });
+  const built = await build(store, "what did I ask you that day?", { understand });
   assert.deepEqual(built.found.turns.map((t) => t.userText), ["Pizza dough recipe"]);
 });
 
 test("recent turns reach the small model, shortened", async () => {
-  const store = new Store(":memory:");
+  const store = createRepositories(":memory:");
   const { understand, calls } = understood({});
   const history = [{ id: 1, threadId: "t", createdAt: NOW, userText: "CRM tools", assistantText: "x".repeat(900), sources: [], queries: [], status: "ok" as const }];
-  await buildContext({ store, text: "woh wala batao", now: NOW, tz: TZ, threadId: "t", history, excludeIds: new Set([1]), helpers: { understand } });
+  await buildContext({ store, text: "what about that one", now: NOW, tz: TZ, threadId: "t", history, excludeIds: new Set([1]), helpers: { understand } });
   assert.ok(calls[0].recent[0].assistant.length <= 200);
   assert.match(calls[0].recent[0].user, /CRM tools/);
 });
@@ -109,7 +108,7 @@ for (const [name, understand] of [
   ["returns the wrong shape", async () => ({ text: '{"intent":"launch"}', usage })],
 ] as const) {
   test(`the reply continues when the small model ${name}`, async () => {
-    const store = new Store(":memory:");
+    const store = createRepositories(":memory:");
     add(store, NOV3, "CRM tools shortlist");
     const built = await build(store, "woh CRM tools wala", { understand: understand as any });
     assert.match(built.found.turns[0]?.userText ?? "", /CRM/);
@@ -117,7 +116,7 @@ for (const [name, understand] of [
 }
 
 test("a slow small model is cut off instead of delaying the reply", async () => {
-  const store = new Store(":memory:");
+  const store = createRepositories(":memory:");
   const start = performance.now();
   await build(store, "woh wala batao", {
     understand: (_, signal) => new Promise((_, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")))),
@@ -126,7 +125,7 @@ test("a slow small model is cut off instead of delaying the reply", async () => 
 });
 
 test("a re-check on nothing stays at the normal search cap", async () => {
-  const built = await build(new Store(":memory:"), "What did I ask on 1 January? Has any pricing changed?");
+  const built = await build(createRepositories(":memory:"), "What did I ask on 1 January? Has any pricing changed?");
   assert.equal(built.maxSearches, 4);
   assert.match(built.context, /holds nothing/);
 });
@@ -150,7 +149,7 @@ test("the search cap reaches the answering model", async () => {
 
 test("a date with no chats that day skips the small model", async () => {
   const { understand, calls } = understood({});
-  const built = await build(new Store(":memory:"), "3 novbber ko kya tha", { understand });
+  const built = await build(createRepositories(":memory:"), "3 novbber ko kya tha", { understand });
   assert.equal(calls.length, 0);
   assert.match(built.context, /holds nothing/);
 });
