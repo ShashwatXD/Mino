@@ -177,9 +177,68 @@ test("chats are listed by latest activity and titled by their first question", (
   save("b", 2, "Second chat opening");
   save("a", 3, "First chat follow-up");
   assert.deepEqual(store.threads(), [
-    { threadId: "a", title: "First chat opening", updatedAt: 3 },
-    { threadId: "b", title: "Second chat opening", updatedAt: 2 },
+    { threadId: "a", title: "First chat opening", updatedAt: 3, pinned: false },
+    { threadId: "b", title: "Second chat opening", updatedAt: 2, pinned: false },
   ]);
+});
+
+test("pinned chats come first, latest pin on top, and unpinning restores activity order", () => {
+  const store = new Store(":memory:");
+  const save = (threadId: string, createdAt: number) =>
+    store.save({ threadId, createdAt, userText: threadId, assistantText: "a", sources: [], queries: [], status: "ok" });
+  save("old", 1);
+  save("mid", 2);
+  save("new", 3);
+  store.setPinned("old", true, 10);
+  store.setPinned("mid", true, 20);
+  store.setPinned("ghost", true, 30);
+  assert.deepEqual(store.threads().map((t) => [t.threadId, t.pinned]), [["mid", true], ["old", true], ["new", false]]);
+  store.setPinned("mid", false, 40);
+  store.setPinned("old", false, 40);
+  assert.deepEqual(store.threads().map((t) => t.threadId), ["new", "mid", "old"]);
+});
+
+test("deleting a chat removes it from the list and from recall, and leaves other chats alone", () => {
+  const store = new Store(":memory:");
+  const save = (threadId: string, userText: string) =>
+    store.save({ threadId, createdAt: 1, userText, assistantText: "a", sources: [], queries: [], status: "ok" });
+  save("gone", "postgres hosting");
+  save("kept", "postgres backups");
+  store.setPinned("gone", true, 2);
+  store.saveFact("name", "Sam", 1);
+  store.saveSummary("gone", "summary of gone", 1, 1);
+  store.saveSummary("kept", "summary of kept", 2, 1);
+  store.deleteThread("gone");
+  assert.deepEqual(store.thread("gone"), []);
+  assert.deepEqual(store.threads().map((t) => t.threadId), ["kept"]);
+  assert.deepEqual(store.fuzzyCandidates(["hosting"]).filter((t) => t.threadId === "gone"), []);
+  assert.equal(store.fuzzyCandidates(["backups"]).filter((t) => t.threadId === "kept").length, 1);
+  assert.equal(store.summary("gone"), null);
+  assert.equal(store.summary("kept")?.text, "summary of kept");
+  store.saveSummary("gone", "written after delete", 1, 2);
+  assert.equal(store.summary("gone"), null);
+  assert.equal(store.facts().length, 1);
+});
+
+test("the API pins chats, rejects bad changes, and deleting stops a running reply", async () => {
+  const engine = controlledEngine();
+  const { store, base } = await start(engine);
+  const change = (method: string, body: unknown) => fetch(base + "/api/thread", { method, body: JSON.stringify(body) });
+
+  const res = await post(base, "/api/chat", { threadId: "t", message: "hello", timezone: "UTC" });
+  const events = collect(res, (e) => e.type === "stopped");
+  await engine.ready;
+  engine.text("partial");
+
+  assert.equal((await change("PATCH", { threadId: "t" })).status, 400);
+  assert.equal((await change("PATCH", { threadId: "t", pinned: true })).status, 204);
+  assert.equal(store.threads()[0].pinned, true);
+
+  assert.equal((await change("DELETE", { threadId: "t" })).status, 204);
+  assert.equal((await events).at(-1).type, "stopped");
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(store.threads(), []);
+  assert.deepEqual(store.thread("t"), []);
 });
 
 test("a late subscriber to a finished run gets the replay and the end", () => {

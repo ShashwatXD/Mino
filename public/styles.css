@@ -134,9 +134,29 @@ body.chats-open #chats{transform:none;visibility:visible}
 .chats-title{color:var(--ink-60);padding:4px 10px 8px}
 .chats-day{color:var(--ink-60);padding:16px 10px 6px}
 .chats-empty{color:var(--ink-60);font-size:14px;padding:6px 10px}
+.chat-row{position:relative;border-radius:9px}
+.chat-row:hover{background:var(--ink-06)}
+.chat-row.active{background:var(--ink-12)}
 .chat-item{display:block;width:100%;text-align:left;background:none;border:0;border-radius:9px;padding:8px 10px;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.chat-item:hover{background:var(--ink-06)}
-.chat-item.active{background:var(--ink-12);font-weight:500}
+.chat-row.active .chat-item{font-weight:500}
+.chat-actions{position:absolute;top:50%;right:4px;transform:translateY(-50%);display:flex;opacity:0}
+.chat-row:hover .chat-actions,.chat-row:has(:focus-visible) .chat-actions{opacity:1}
+.chat-row:hover .chat-item,.chat-row:has(:focus-visible) .chat-item{padding-right:66px}
+.chat-actions .round{width:28px;height:28px;color:var(--ink-60)}
+.chat-actions .round:hover:not(:disabled){color:var(--ink);background:var(--ink-12)}
+.chat-actions svg{width:16px;height:16px}
+.chat-actions .pin.on{color:var(--ink)}
+.chat-actions .pin.on svg{fill:currentColor}
+.chat-confirm{display:flex;align-items:center;gap:6px;padding:4px 5px 4px 10px;font-size:14px}
+.chat-confirm span{flex:1;min-width:0}
+.chat-confirm .ghost{padding:3px 9px}
+.chat-confirm .delete{color:var(--danger)}
+.chat-confirm button:disabled{opacity:.5;cursor:default}
+@media (hover:none){
+  .chat-actions{opacity:1}
+  .chat-item,.chat-row:hover .chat-item,.chat-row:has(:focus-visible) .chat-item{padding-right:80px}
+  .chat-actions .round{width:36px;height:36px}
+}
 #chats-backdrop{display:none}
 #chats-toggle{color:inherit;margin-left:-8px}
 .answer-tools{display:flex;gap:2px}

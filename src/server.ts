@@ -33,6 +33,7 @@ const STATIC_FILES: Record<string, [string, string]> = {
 };
 
 const StopSchema = z.object({ threadId: z.string().min(1).max(100) });
+const ThreadChangeSchema = StopSchema.extend({ pinned: z.boolean().optional() });
 const StreamQuerySchema = z.object({
   threadId: z.string().min(1).max(100),
   after: z.coerce.number().int().min(0).default(0),
@@ -242,6 +243,30 @@ async function handleStop(req: IncomingMessage, res: ServerResponse, runs: RunRe
   res.writeHead(204).end();
 }
 
+async function handleThreadChange(req: IncomingMessage, res: ServerResponse, deps: AppDeps, runs: RunRegistry): Promise<void> {
+  let json: unknown;
+  try {
+    json = JSON.parse(await readBody(req));
+  } catch {
+    res.writeHead(400).end("Invalid request");
+    return;
+  }
+  const parsed = ThreadChangeSchema.safeParse(json);
+  if (!parsed.success || (req.method === "PATCH" && parsed.data.pinned === undefined)) {
+    res.writeHead(400).end("Invalid request");
+    return;
+  }
+  const { threadId, pinned } = parsed.data;
+  if (req.method === "DELETE") {
+    // A reply still running writes to its turn by id, so once the rows are gone those writes do nothing.
+    runs.get(threadId)?.abort.abort();
+    deps.store.deleteThread(threadId);
+  } else {
+    deps.store.setPinned(threadId, pinned!, (deps.now ?? Date.now)());
+  }
+  res.writeHead(204).end();
+}
+
 const LOCAL_HOST = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 
 /** Stops other websites, and DNS rebinding, from driving this local API from the user's browser. */
@@ -324,6 +349,8 @@ export function createApp(deps: AppDeps): RequestListener {
     } else if (route === "GET /api/threads") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(deps.store.threads()));
+    } else if (route === "PATCH /api/thread" || route === "DELETE /api/thread") {
+      handleThreadChange(req, res, deps, runs).catch(fail(res));
     } else if (route === "GET /api/thread") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(deps.store.thread((url.searchParams.get("id") ?? "").slice(0, 100))));

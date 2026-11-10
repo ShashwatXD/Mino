@@ -59,7 +59,7 @@ function toTurn(r: Row): Turn {
   };
 }
 
-/** Append-only log of what was asked, answered and read, each stamped with when. */
+/** Log of what was asked, answered and read, each stamped with when. Turns only leave it when the user deletes their chat. */
 export class Store {
   private db: DatabaseSync;
 
@@ -86,6 +86,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS chat_summaries (thread_id TEXT PRIMARY KEY, text TEXT NOT NULL, covered_turn_id INTEGER NOT NULL, updated_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS usage_daily (day TEXT PRIMARY KEY, cost_usd REAL NOT NULL, messages INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS facts (key TEXT PRIMARY KEY, value TEXT NOT NULL, stated_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS pinned_threads (thread_id TEXT PRIMARY KEY, pinned_at INTEGER NOT NULL);
     `);
     this.db.exec(`
       INSERT INTO turns_tri (rowid, user_text, assistant_text)
@@ -167,16 +168,47 @@ export class Store {
     return rows.map(toTurn);
   }
 
-  /** One row per chat, newest activity first, titled by its opening question. */
-  threads(limit = 100): { threadId: string; title: string; updatedAt: number }[] {
+  /** One row per chat, titled by its opening question: latest pins first, then newest activity. */
+  threads(limit = 100): { threadId: string; title: string; updatedAt: number; pinned: boolean }[] {
     const rows = this.db
       .prepare(
-        `SELECT t.thread_id, t.user_text, m.last_at FROM turns t
+        `SELECT t.thread_id, t.user_text, m.last_at, p.pinned_at FROM turns t
          JOIN (SELECT thread_id, MIN(id) AS first_id, MAX(created_at) AS last_at FROM turns GROUP BY thread_id) m ON t.id = m.first_id
-         ORDER BY m.last_at DESC LIMIT ?`,
+         LEFT JOIN pinned_threads p ON p.thread_id = t.thread_id
+         ORDER BY p.pinned_at IS NULL, p.pinned_at DESC, m.last_at DESC LIMIT ?`,
       )
-      .all(limit) as { thread_id: string; user_text: string; last_at: number }[];
-    return rows.map((r) => ({ threadId: r.thread_id, title: r.user_text, updatedAt: r.last_at }));
+      .all(limit) as { thread_id: string; user_text: string; last_at: number; pinned_at: number | null }[];
+    return rows.map((r) => ({ threadId: r.thread_id, title: r.user_text, updatedAt: r.last_at, pinned: r.pinned_at !== null }));
+  }
+
+  /** Pinning a chat that has no turns does nothing, so a stale tab cannot leave an orphan pin. */
+  setPinned(threadId: string, pinned: boolean, at: number): void {
+    if (!pinned) {
+      this.db.prepare(`DELETE FROM pinned_threads WHERE thread_id = ?`).run(threadId);
+      return;
+    }
+    this.db
+      .prepare(
+        `INSERT INTO pinned_threads (thread_id, pinned_at)
+         SELECT ?, ? WHERE EXISTS (SELECT 1 FROM turns WHERE thread_id = ?)
+         ON CONFLICT(thread_id) DO NOTHING`,
+      )
+      .run(threadId, at, threadId);
+  }
+
+  /** Removes a chat for good, including its search index and summary, so recall cannot surface it again. */
+  deleteThread(threadId: string): void {
+    this.db.exec("BEGIN");
+    try {
+      this.db.prepare(`DELETE FROM turns_tri WHERE rowid IN (SELECT id FROM turns WHERE thread_id = ?)`).run(threadId);
+      this.db.prepare(`DELETE FROM turns WHERE thread_id = ?`).run(threadId);
+      this.db.prepare(`DELETE FROM chat_summaries WHERE thread_id = ?`).run(threadId);
+      this.db.prepare(`DELETE FROM pinned_threads WHERE thread_id = ?`).run(threadId);
+      this.db.exec("COMMIT");
+    } catch (err) {
+      this.db.exec("ROLLBACK");
+      throw err;
+    }
   }
 
   /** Candidates that share letter sequences with any keyword, so misspellings still surface. */
@@ -196,13 +228,15 @@ export class Store {
     return rows.map(toTurn);
   }
 
+  /** A summary still being written when its chat is deleted finds no turns here, so it is dropped. */
   saveSummary(threadId: string, text: string, coveredTurnId: number, updatedAt: number): void {
     this.db
       .prepare(
-        `INSERT INTO chat_summaries (thread_id, text, covered_turn_id, updated_at) VALUES (?, ?, ?, ?)
+        `INSERT INTO chat_summaries (thread_id, text, covered_turn_id, updated_at)
+         SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM turns WHERE thread_id = ?)
          ON CONFLICT(thread_id) DO UPDATE SET text = excluded.text, covered_turn_id = excluded.covered_turn_id, updated_at = excluded.updated_at`,
       )
-      .run(threadId, text, coveredTurnId, updatedAt);
+      .run(threadId, text, coveredTurnId, updatedAt, threadId);
   }
 
   summary(threadId: string): { text: string; coveredTurnId: number } | null {
