@@ -78,6 +78,7 @@ test("errors are mapped the same way for every engine", () => {
   assert.match(friendlyError(Object.assign(new Error("x"), { status: 401 })), /rejected/);
   assert.match(friendlyError(Object.assign(new Error("API key not valid"), { status: 400 })), /rejected/);
   assert.match(friendlyError(Object.assign(new Error("x"), { status: 429 })), /rate limited/);
+  assert.match(friendlyError(Object.assign(new Error("x"), { status: 402 })), /no credits/);
   assert.match(friendlyError(new TypeError("fetch failed")), /reach the model/);
 });
 

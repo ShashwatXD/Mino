@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Effort } from "../config.ts";
 import type { Source, Turn } from "../store.ts";
-import { citedFirst, pastPairs, REFUSAL_TEXT, SYSTEM_PROMPT, type TurnOptions, type TurnResult } from "./shared.ts";
+import { citedFirst, MAX_OUTPUT_TOKENS, MAX_SEARCHES, pastPairs, REFUSAL_TEXT, SYSTEM_PROMPT, type TurnOptions, type TurnResult } from "./shared.ts";
 
 type MessageParam = Anthropic.Beta.Messages.BetaMessageParam;
 
@@ -11,7 +11,7 @@ export interface AnthropicOptions extends TurnOptions {
   effort: Effort;
 }
 
-const MAX_CONTINUATIONS = 5;
+const MAX_CONTINUATIONS = 2;
 
 /** Replays plain text only, so history stays a stable, cacheable, append-only prefix. */
 export function historyMessages(history: Turn[], tz: string): MessageParam[] {
@@ -44,17 +44,18 @@ export async function runTurn(options: AnthropicOptions): Promise<TurnResult> {
   const queries: string[] = [];
   let text = "";
   let stopReason: string | null = null;
+  const usage = { model, inputTokens: 0, outputTokens: 0, searches: 0 };
 
   for (let attempt = 0; attempt <= MAX_CONTINUATIONS; attempt++) {
     const stream = client.beta.messages.stream(
       {
         model,
-        max_tokens: 16000,
+        max_tokens: MAX_OUTPUT_TOKENS,
         betas: ["server-side-fallback-2026-07-01"],
         fallbacks: "default",
         output_config: { effort },
         system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
-        tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 6 }],
+        tools: [{ type: "web_search_20260209", name: "web_search", max_uses: MAX_SEARCHES }],
         messages,
       } as unknown as Anthropic.Beta.Messages.MessageCreateParamsStreaming,
       { signal },
@@ -106,6 +107,10 @@ export async function runTurn(options: AnthropicOptions): Promise<TurnResult> {
 
     const message = await stream.finalMessage();
     stopReason = message.stop_reason;
+    const reported = message.usage as any;
+    usage.inputTokens += (reported?.input_tokens ?? 0) + (reported?.cache_read_input_tokens ?? 0) + (reported?.cache_creation_input_tokens ?? 0);
+    usage.outputTokens += reported?.output_tokens ?? 0;
+    usage.searches += reported?.server_tool_use?.web_search_requests ?? 0;
     if (stopReason !== "pause_turn") break;
     // The server resumes from the trailing server_tool_use block; no extra user message is added.
     messages.push({ role: "assistant", content: message.content as never });
@@ -118,5 +123,5 @@ export async function runTurn(options: AnthropicOptions): Promise<TurnResult> {
 
   const finalSources = citedFirst(sources);
   emit({ type: "sources", sources: finalSources });
-  return { text, sources: finalSources, queries, stopReason };
+  return { text, sources: finalSources, queries, stopReason, usage };
 }

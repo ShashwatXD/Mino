@@ -3,6 +3,7 @@ import type { Source } from "../store.ts";
 import {
   citedFirst,
   EMPTY_TEXT,
+  MAX_OUTPUT_TOKENS,
   pastPairs,
   REFUSAL_TEXT,
   SYSTEM_PROMPT,
@@ -40,6 +41,7 @@ export async function runGemini(options: GeminiOptions): Promise<TurnResult> {
     config: {
       systemInstruction: SYSTEM_PROMPT,
       tools: [{ googleSearch: {} }],
+      maxOutputTokens: MAX_OUTPUT_TOKENS,
       abortSignal: signal,
     },
   });
@@ -48,9 +50,16 @@ export async function runGemini(options: GeminiOptions): Promise<TurnResult> {
   const queries: string[] = [];
   let text = "";
   let stopReason: string | null = null;
+  const usage = { model, inputTokens: 0, outputTokens: 0, searches: 0 };
   let chunks: { web?: { uri?: string; title?: string } }[] = [];
 
   for await (const response of stream) {
+    // Each chunk reports running totals, so the latest one wins.
+    if (response.usageMetadata) {
+      const u = response.usageMetadata;
+      usage.inputTokens = (u.promptTokenCount ?? 0) + (u.toolUsePromptTokenCount ?? 0);
+      usage.outputTokens = (u.candidatesTokenCount ?? 0) + (u.thoughtsTokenCount ?? 0);
+    }
     const candidate = response.candidates?.[0];
     if (!candidate) {
       if (response.promptFeedback?.blockReason) stopReason = String(response.promptFeedback.blockReason);
@@ -93,7 +102,8 @@ export async function runGemini(options: GeminiOptions): Promise<TurnResult> {
     emit({ type: "text", text });
   }
 
+  usage.searches = queries.length;
   const finalSources = citedFirst(sources);
   emit({ type: "sources", sources: finalSources });
-  return { text, sources: finalSources, queries, stopReason };
+  return { text, sources: finalSources, queries, stopReason, usage };
 }

@@ -16,16 +16,16 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000.
+Open http://localhost:3000. You can also add or change keys in the app at `/settings`.
 
 ## Engines
 
-The key in `.env` picks the engine. Gemini is preferred when there are several.
+Add a key in the app under Settings, or in `.env`. Gemini is preferred when there are several, and the model selector switches between them.
 
 | Engine | Key | Default model |
 | --- | --- | --- |
 | Gemini | `GEMINI_API_KEY` | `gemini-3.8-flash` |
-| Claude | `ANTHROPIC_API_KEY` | `claude-opus-5-5` |
+| Claude | `ANTHROPIC_API_KEY` | `claude-sonnet-5-5` |
 | OpenAI | `OPENAI_API_KEY` | `gpt-6-astra` |
 
 ## Test

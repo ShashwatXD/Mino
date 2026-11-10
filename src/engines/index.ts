@@ -8,7 +8,7 @@ import { runOpenAI } from "./openai.ts";
 import type { Engine } from "./shared.ts";
 
 /** Starts whichever engine the configuration resolved to, or none when no key is usable. */
-export function createEngine(config: AppConfig): Engine | null {
+export function createEngine(config: Pick<AppConfig, "provider" | "apiKey" | "model" | "effort">): Engine | null {
   const { provider, apiKey, model, effort } = config;
   if (!provider || !apiKey || !model) return null;
 

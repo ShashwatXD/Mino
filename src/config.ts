@@ -8,7 +8,7 @@ export type Effort = (typeof EFFORTS)[number];
 
 export const DEFAULT_MODELS: Record<Provider, string> = {
   gemini: "gemini-3.8-flash",
-  anthropic: "claude-opus-5-5",
+  anthropic: "claude-sonnet-5-5",
   openai: "gpt-6-astra",
 };
 
@@ -18,7 +18,7 @@ const blankToUndefined = (value: unknown) => {
   return trimmed === "" ? undefined : trimmed;
 };
 
-const KeySchema = z.preprocess(
+export const KeySchema = z.preprocess(
   blankToUndefined,
   z
     .string()
@@ -33,6 +33,9 @@ const SettingsSchema = z.object({
   MODEL: z.preprocess(blankToUndefined, z.string().optional()),
   EFFORT: z.preprocess(blankToUndefined, z.enum(EFFORTS).default("medium")),
   PORT: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).max(65535).default(3000)),
+  DAILY_BUDGET_USD: z.preprocess(blankToUndefined, z.coerce.number().min(0).default(1)),
+  MAX_MESSAGES_PER_MINUTE: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).default(10)),
+  MAX_MESSAGES_PER_DAY: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).default(200)),
 });
 
 export const ChatRequestSchema = z.object({
@@ -57,20 +60,29 @@ const KEY_SLOTS: { name: string; provider: Provider | undefined }[] = [
   { name: "API_KEY", provider: undefined },
 ];
 
-const MODEL_PATTERNS: Record<Provider, RegExp> = {
+export const MODEL_PATTERNS: Record<Provider, RegExp> = {
   gemini: /^(models\/)?gemini-/,
   anthropic: /^claude-/,
   openai: /^(gpt-|o\d|chatgpt-)/,
 };
 
+export interface Limits {
+  dailyBudgetUsd: number;
+  maxPerMinute: number;
+  maxPerDay: number;
+  maxConcurrent: number;
+}
+
 export interface AppConfig {
   provider: Provider | null;
   apiKey: string | null;
+  keys: Partial<Record<Provider, string>>;
   model: string | null;
   effort: Effort;
   port: number;
   available: Provider[];
   warnings: string[];
+  limits: Limits;
 }
 
 export class ConfigError extends Error {}
@@ -120,10 +132,17 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
   return {
     provider,
     apiKey: provider ? keys.get(provider)! : null,
+    keys: Object.fromEntries(keys),
     model,
     effort: settings.EFFORT,
     port: settings.PORT,
     available,
     warnings,
+    limits: {
+      dailyBudgetUsd: settings.DAILY_BUDGET_USD,
+      maxPerMinute: settings.MAX_MESSAGES_PER_MINUTE,
+      maxPerDay: settings.MAX_MESSAGES_PER_DAY,
+      maxConcurrent: 2,
+    },
   };
 }

@@ -98,7 +98,7 @@ export function resolveTimeRefs(text: string, now: number, tz: string): TimeRef[
 
     let at = result.date().getTime();
     // Questions in a chat refer to the past, so a bare date that lands ahead is last occurrence.
-    if (at > now + DAY) {
+    if (dayStartOf(tz, at) > dayStartOf(tz, now)) {
       if (s.isCertain("month") && !s.isCertain("year")) {
         const p = zonedParts(tz, at);
         at = startOfDay(tz, p.y - 1, p.m, p.d);
