@@ -111,7 +111,7 @@ body.scroll{overflow-y:auto}
 .label{display:block;color:var(--ink-60);margin-bottom:8px}
 .field select,.field input{display:block;width:100%;font:inherit;font-size:15px;color:inherit;background:var(--ink-06);border:0;border-radius:12px;padding:13px 14px;outline:0}
 .field input::placeholder{color:var(--ink-60)}
-.field select:focus,.field input:focus{background:var(--ink-12)}
+.field select:focus,.field input:focus{background-color:var(--ink-12)}
 .key-line{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:10px}
 .key-line a{color:var(--ink-60);font-size:14px;text-underline-offset:3px}
 .provider-status{color:var(--ink-60)}
@@ -143,3 +143,14 @@ body.chats-open #chats{transform:none;visibility:visible}
 @media (min-width:900px){body.chats-open{padding-left:264px}}
 @media (max-width:899px){body.chats-open #chats-backdrop{display:block;position:fixed;inset:0;z-index:15;background:#14121066}}
 @media (prefers-reduced-motion:reduce){#chats{transition:none}}
+.wave{display:none;flex:1;align-items:center;gap:3px;height:40px;overflow:hidden}
+.wave i{flex:1 0 2px;height:60%;border-radius:2px;background:var(--ink);animation:wave 1s ease-in-out infinite}
+@keyframes wave{0%,100%{transform:scaleY(.15)}50%{transform:scaleY(1)}}
+.composer.listening{flex-wrap:nowrap;border-radius:30px;padding:8px 8px 8px 20px}
+.composer.listening textarea,.composer.listening .model:not([hidden]),.composer.listening #send{display:none}
+.composer.listening .wave{display:flex}
+.composer.listening .controls{flex:none;margin:0}
+.composer.listening #mic{background:var(--ink);color:var(--paper)}
+.answer-tools .round.on{color:var(--ink);background:var(--ink-06)}
+.field select{appearance:none;-webkit-appearance:none;padding-right:44px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none' stroke='%23141210' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m1.5 1.5 4.5 4.5 4.5-4.5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 16px center}
+@media (prefers-color-scheme:dark){.field select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none' stroke='%23f5f1ea' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m1.5 1.5 4.5 4.5 4.5-4.5'/%3E%3C/svg%3E")}}

@@ -38,12 +38,12 @@ For the brief's examples:
 
 - **Memory runs in code, not as a tool.** The brief allows one tool, and a date question should never depend on the model choosing to look.
 - **Exact turns and summaries, not one or the other.** Summaries keep every prompt small. "What did I ask?" and "has it changed?" need the exact words and old prices, so the log stays the source of truth.
-- **"No record" is a fact the model is given.** It cannot invent a past chat, and it still helps with the topic.
+- **"No record" is a fact the model is given.** It is told not to invent a past chat, and it still helps with the topic.
 - **Recall handles how people type.** Misspelled dates and topics and common Hinglish still resolve locally in milliseconds. A small model with no tools handles only unclear messages, and the reply continues if it fails.
 - **A reply belongs to the server, not the tab.** Refreshing or switching tabs only stops watching. Numbered events let any tab resume without repeats.
 - **Spend has hard limits.** Each reply has output and search caps and a timeout, and a daily budget refuses requests before a model is called.
 - **Retrieved text is treated as data,** so instructions inside web pages or old chats are ignored and stored text is escaped.
-- **Any provider's key works,** with a small, fast model by default.
+- **Any provider's key works,** with an inexpensive model by default.
 
 ## What I considered and rejected
 
