@@ -31,7 +31,7 @@ function zonedParts(tz: string, at: number) {
   };
 }
 
-export function offsetMinutes(tz: string, at: number): number {
+function offsetMinutes(tz: string, at: number): number {
   const p = zonedParts(tz, at);
   const asUtc = Date.UTC(p.y, p.m - 1, p.d, p.h, p.min, p.s);
   return Math.round((asUtc - Math.floor(at / 1000) * 1000) / 60_000);
@@ -82,6 +82,17 @@ export function safeTimeZone(tz: unknown): string {
     }
   }
   return Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
+/** Builds a window from explicit YYYY-MM-DD dates, rejecting impossible or absurdly long ranges. */
+export function rangeRef(from: string, to: string, tz: string): TimeRef | null {
+  const parse = (s: string) => s.split("-").map(Number) as [number, number, number];
+  const start = startOfDay(tz, ...parse(from));
+  const end = startOfDay(tz, ...parse(to)) + DAY;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || end - start > 400 * DAY) return null;
+  const lastDay = end - DAY;
+  const label = lastDay > start ? `${formatDay(tz, start)} to ${formatDay(tz, lastDay)}` : formatDay(tz, start);
+  return { phrase: from === to ? from : `${from} to ${to}`, start, end, label };
 }
 
 /** Turns phrases like "last Tuesday" or "3 November" into absolute windows in the user's zone. */

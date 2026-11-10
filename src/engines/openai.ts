@@ -3,12 +3,12 @@ import type { ResponseInput } from "openai/resources/responses/responses";
 import type { Source } from "../store.ts";
 import { citedFirst, EMPTY_TEXT, MAX_OUTPUT_TOKENS, MAX_SEARCHES, pastPairs, SYSTEM_PROMPT, type TurnOptions, type TurnResult } from "./shared.ts";
 
-export interface OpenAIOptions extends TurnOptions {
+interface OpenAIOptions extends TurnOptions {
   client: { responses: Pick<OpenAI["responses"], "stream"> };
   model: string;
 }
 
-export function openaiInput(options: Pick<TurnOptions, "history" | "userText" | "context" | "tz">): ResponseInput {
+function openaiInput(options: Pick<TurnOptions, "history" | "userText" | "context" | "tz">): ResponseInput {
   const { history, userText, context, tz } = options;
   return [
     ...pastPairs(history, tz).flatMap((pair): ResponseInput => [
@@ -29,7 +29,7 @@ export async function runOpenAI(options: OpenAIOptions): Promise<TurnResult> {
       input: openaiInput(options),
       tools: [{ type: "web_search" }],
       max_output_tokens: MAX_OUTPUT_TOKENS,
-      max_tool_calls: MAX_SEARCHES,
+      max_tool_calls: options.maxSearches ?? MAX_SEARCHES,
     },
     { signal },
   );

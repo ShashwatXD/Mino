@@ -15,6 +15,13 @@ export interface Fact {
   statedAt: number;
 }
 
+export interface RecentChat {
+  threadId: string;
+  title: string;
+  summary: string | null;
+  updatedAt: number;
+}
+
 export type TurnStatus = "ok" | "streaming" | "interrupted" | "failed";
 
 export interface Turn {
@@ -73,8 +80,10 @@ export class Store {
       );
       CREATE INDEX IF NOT EXISTS turns_created ON turns(created_at);
       CREATE INDEX IF NOT EXISTS turns_thread ON turns(thread_id, id);
-      CREATE VIRTUAL TABLE IF NOT EXISTS turns_fts USING fts5(user_text, assistant_text);
+      DROP TABLE IF EXISTS turns_fts;
       CREATE VIRTUAL TABLE IF NOT EXISTS turns_tri USING fts5(user_text, assistant_text, tokenize='trigram');
+      DROP TABLE IF EXISTS embeddings;
+      CREATE TABLE IF NOT EXISTS chat_summaries (thread_id TEXT PRIMARY KEY, text TEXT NOT NULL, covered_turn_id INTEGER NOT NULL, updated_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS usage_daily (day TEXT PRIMARY KEY, cost_usd REAL NOT NULL, messages INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS facts (key TEXT PRIMARY KEY, value TEXT NOT NULL, stated_at INTEGER NOT NULL);
     `);
@@ -101,9 +110,6 @@ export class Store {
       );
     const id = Number(result.lastInsertRowid);
     this.db
-      .prepare(`INSERT INTO turns_fts (rowid, user_text, assistant_text) VALUES (?, ?, ?)`)
-      .run(id, turn.userText, turn.assistantText);
-    this.db
       .prepare(`INSERT INTO turns_tri (rowid, user_text, assistant_text) VALUES (?, ?, ?)`)
       .run(id, turn.userText, turn.assistantText);
     return id;
@@ -126,7 +132,6 @@ export class Store {
   }
 
   private indexAnswer(id: number, text: string): void {
-    this.db.prepare(`UPDATE turns_fts SET assistant_text = ? WHERE rowid = ?`).run(text, id);
     this.db.prepare(`UPDATE turns_tri SET assistant_text = ? WHERE rowid = ?`).run(text, id);
   }
 
@@ -162,18 +167,6 @@ export class Store {
     return rows.map(toTurn);
   }
 
-  search(keywords: string[], limit = 10): Turn[] {
-    if (keywords.length === 0) return [];
-    const match = keywords.map((k) => `"${k.replaceAll('"', '""')}"`).join(" OR ");
-    const rows = this.db
-      .prepare(
-        `SELECT t.* FROM turns_fts f JOIN turns t ON t.id = f.rowid
-         WHERE turns_fts MATCH ? ORDER BY bm25(turns_fts) LIMIT ?`,
-      )
-      .all(match, limit) as Row[];
-    return rows.map(toTurn);
-  }
-
   /** One row per chat, newest activity first, titled by its opening question. */
   threads(limit = 100): { threadId: string; title: string; updatedAt: number }[] {
     const rows = this.db
@@ -201,6 +194,47 @@ export class Store {
       )
       .all(match, limit) as Row[];
     return rows.map(toTurn);
+  }
+
+  saveSummary(threadId: string, text: string, coveredTurnId: number, updatedAt: number): void {
+    this.db
+      .prepare(
+        `INSERT INTO chat_summaries (thread_id, text, covered_turn_id, updated_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(thread_id) DO UPDATE SET text = excluded.text, covered_turn_id = excluded.covered_turn_id, updated_at = excluded.updated_at`,
+      )
+      .run(threadId, text, coveredTurnId, updatedAt);
+  }
+
+  summary(threadId: string): { text: string; coveredTurnId: number } | null {
+    const row = this.db.prepare(`SELECT text, covered_turn_id FROM chat_summaries WHERE thread_id = ?`).get(threadId) as
+      | { text: string; covered_turn_id: number }
+      | undefined;
+    return row ? { text: row.text, coveredTurnId: row.covered_turn_id } : null;
+  }
+
+  turnsAfter(threadId: string, afterId: number, limit: number): Turn[] {
+    const rows = this.db
+      .prepare(`SELECT * FROM turns WHERE thread_id = ? AND id > ? AND status IN ('ok', 'interrupted') ORDER BY id ASC LIMIT ?`)
+      .all(threadId, afterId, limit) as Row[];
+    return rows.map(toTurn);
+  }
+
+  turnCount(threadId: string): number {
+    const row = this.db.prepare(`SELECT COUNT(*) AS n FROM turns WHERE thread_id = ? AND status IN ('ok', 'interrupted')`).get(threadId) as { n: number };
+    return row.n;
+  }
+
+  /** Other chats, newest first, each with its summary or its opening question if none exists yet. */
+  recentChats(limit: number, excludeThreadId: string): RecentChat[] {
+    const rows = this.db
+      .prepare(
+        `SELECT t.thread_id, t.user_text, m.last_at, s.text AS summary FROM turns t
+         JOIN (SELECT thread_id, MIN(id) AS first_id, MAX(created_at) AS last_at FROM turns WHERE status IN ('ok', 'interrupted') GROUP BY thread_id) m ON t.id = m.first_id
+         LEFT JOIN chat_summaries s ON s.thread_id = t.thread_id
+         WHERE t.thread_id != ? ORDER BY m.last_at DESC LIMIT ?`,
+      )
+      .all(excludeThreadId, limit) as { thread_id: string; user_text: string; last_at: number; summary: string | null }[];
+    return rows.map((r) => ({ threadId: r.thread_id, title: r.user_text, summary: r.summary, updatedAt: r.last_at }));
   }
 
   addUsage(day: string, costUsd: number, messages: number): void {

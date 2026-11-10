@@ -1,5 +1,5 @@
-export type RunEvent = { type: string; [key: string]: unknown };
-export type SequencedEvent = RunEvent & { seq: number };
+type RunEvent = { type: string; [key: string]: unknown };
+type SequencedEvent = RunEvent & { seq: number };
 type Listener = (event: SequencedEvent | null) => void;
 
 /** One reply being generated. It outlives any tab watching it, and replays for late joiners. */

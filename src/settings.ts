@@ -4,6 +4,7 @@ import { z } from "zod";
 import { DEFAULT_MODELS, KeySchema, MODEL_PATTERNS, PROVIDERS, providerOfKey, type AppConfig, type Provider } from "./config.ts";
 import { createEngine } from "./engines/index.ts";
 import { listModels as realListModels } from "./engines/models.ts";
+import { createSummarizer, createUnderstander, type Summarizer, type Understander } from "./engines/small.ts";
 import type { Engine } from "./engines/shared.ts";
 
 const PROVIDER_INFO: Record<Provider, { label: string; keyUrl: string }> = {
@@ -35,7 +36,7 @@ function isAuthFailure(err: unknown): boolean {
   return status === 401 || status === 403 || /API[ _]KEY/i.test(message);
 }
 
-export interface SettingsOptions {
+interface SettingsOptions {
   listModels?: (provider: Provider, key: string) => Promise<string[]>;
   buildEngine?: typeof createEngine;
 }
@@ -46,6 +47,7 @@ export class SettingsManager {
   private selected: { provider: Provider; model: string } | null = null;
   private cache = new Map<Provider, { at: number; key: string; models: string[] }>();
   private built: { id: string; engine: Engine } | null = null;
+  private builtHelpers: { id: string; value: { understand?: Understander; summarize?: Summarizer } } | null = null;
   private lister: NonNullable<SettingsOptions["listModels"]>;
   private buildEngine: typeof createEngine;
   private warnings: string[];
@@ -84,6 +86,31 @@ export class SettingsManager {
   }
 
   /** A key added in the app overrides .env. Removing it falls back to .env. */
+  private smallModelFor(provider: Provider): string {
+    if (provider === "gemini") return "gemini-3.1-flash-lite";
+    if (provider === "anthropic") return "claude-haiku-5-5";
+    return "gpt-6-luna";
+  }
+
+  /** The small model's two jobs, using the active engine's key. Neither has any tools. */
+  helpers(): { understand?: Understander; summarize?: Summarizer } {
+    const active = this.active();
+    if (!active) return {};
+    const apiKey = this.keyFor(active.provider)!;
+    const small = this.smallModelFor(active.provider);
+    const id = `${active.provider}|${small}|${apiKey}`;
+    if (this.builtHelpers?.id !== id) {
+      this.builtHelpers = {
+        id,
+        value: {
+          understand: createUnderstander(active.provider, apiKey, small),
+          summarize: createSummarizer(active.provider, apiKey, small),
+        },
+      };
+    }
+    return this.builtHelpers.value;
+  }
+
   private keyFor(provider: Provider): string | undefined {
     return this.keys[provider] ?? this.env.keys[provider];
   }

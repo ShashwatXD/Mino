@@ -166,7 +166,7 @@ test("a reply left streaming by a crash is recovered as interrupted and searchab
   const turn = store.thread("t")[0];
   assert.equal(turn.status, "interrupted");
   assert.equal(turn.assistantText, "Neon starts at");
-  assert.equal(store.search(["neon"]).length, 1);
+  assert.equal(store.fuzzyCandidates(["neon"]).length, 1);
 });
 
 test("chats are listed by latest activity and titled by their first question", () => {

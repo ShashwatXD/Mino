@@ -2,8 +2,6 @@
 
 A chat agent with web search that remembers what it told you and when, then checks whether it is still true.
 
-Ask "Last Tuesday I asked about Postgres hosting. Has any pricing changed?" and it finds that conversation, searches again, and tells you what changed.
-
 **[Read the design](DESIGN.md)**
 
 ## Run
@@ -20,13 +18,13 @@ Open http://localhost:3000. You can also add or change keys in the app at `/sett
 
 ## Engines
 
-Add a key in the app under Settings, or in `.env`. Gemini is preferred when there are several, and the model selector switches between them.
+Add one key. Gemini is used first when there are several, and the model can be changed in the app.
 
 | Engine | Key | Default model |
 | --- | --- | --- |
-| Gemini | `GEMINI_API_KEY` | `gemini-3.8-flash` |
+| Gemini | `GEMINI_API_KEY` | `gemini-3.1-flash-lite` |
 | Claude | `ANTHROPIC_API_KEY` | `claude-sonnet-5-5` |
-| OpenAI | `OPENAI_API_KEY` | `gpt-6-astra` |
+| OpenAI | `OPENAI_API_KEY` | `gpt-6-luna` |
 
 ## Test
 

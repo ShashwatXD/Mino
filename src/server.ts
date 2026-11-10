@@ -7,10 +7,11 @@ import { z } from "zod";
 import { ChatRequestSchema, ConfigError, loadConfig } from "./config.ts";
 import type { AgentEvent, TurnOptions, TurnResult } from "./engines/shared.ts";
 import { estimateTokens, SpendGuard } from "./guard.ts";
-import { extractFacts, fitHistory, recall, renderContext } from "./memory.ts";
+import { buildContext, updateChatSummary, type Helpers } from "./context.ts";
+import { extractFacts, fitHistory } from "./memory.ts";
 import { Run, RunRegistry } from "./runs.ts";
 import { RemoveKeySchema, SetKeySchema, SetModelSchema, SettingsError, SettingsManager } from "./settings.ts";
-import { Store } from "./store.ts";
+import { Store, type Turn } from "./store.ts";
 import { safeTimeZone } from "./time.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -70,6 +71,7 @@ export interface AppDeps {
   guard?: SpendGuard;
   runTimeoutMs?: number;
   currentModel?: () => string;
+  helpers?: () => Helpers;
   now?: () => number;
   draftMs?: number;
 }
@@ -96,18 +98,20 @@ function attach(res: ServerResponse, run: Run, after: number): void {
   });
 }
 
-function startReply(deps: AppDeps, runs: RunRegistry, run: Run, turnId: number, options: Omit<TurnOptions, "emit" | "signal">): void {
+function startReply(deps: AppDeps, runs: RunRegistry, run: Run, turnId: number, reply: { history: Turn[]; userText: string; tz: string; now: number }): void {
+  const { history, userText, tz, now } = reply;
   let text = "";
+  let context = "";
   let timer: NodeJS.Timeout | null = null;
   let searches = 0;
   let timedOut = false;
+  const debounce = deps.draftMs ?? DRAFT_DEBOUNCE_MS;
   // A hung provider must not hold a reply, or its cost, open forever.
   const deadline = setTimeout(() => {
     timedOut = true;
     run.abort.abort();
   }, deps.runTimeoutMs ?? RUN_TIMEOUT_MS);
   deadline.unref();
-  const debounce = deps.draftMs ?? DRAFT_DEBOUNCE_MS;
 
   // Tokens stay in memory and reach disk on a debounce, so storage never slows the stream.
   const flushLater = () => {
@@ -131,12 +135,35 @@ function startReply(deps: AppDeps, runs: RunRegistry, run: Run, turnId: number, 
   };
 
   (async () => {
+    const helpers = deps.helpers?.();
     try {
-      const result = await deps.run({ ...options, emit, signal: run.abort.signal });
+      const built = await buildContext({
+        store: deps.store,
+        text: userText,
+        now,
+        tz,
+        threadId: run.threadId,
+        history,
+        excludeIds: new Set([...history.map((t) => t.id), turnId]),
+        helpers,
+      });
+      context = built.context;
+      for (const usage of built.usage) deps.guard?.record(usage);
+      if (built.found.lookedUp) {
+        run.emit({ type: "memory", refs: built.found.refs, found: built.found.turns.length + built.found.inHistory, outsideWindow: built.found.outsideWindow });
+      }
+      run.abort.signal.throwIfAborted();
+
+      const result = await deps.run({ history, userText, context, tz, emit, signal: run.abort.signal, maxSearches: built.maxSearches });
       clearDraftTimer();
       deps.store.finish(turnId, { assistantText: result.text, sources: result.sources, queries: result.queries, status: "ok" });
       if (result.usage) deps.guard?.record(result.usage);
       run.emit({ type: "done", threadId: run.threadId });
+      if (helpers?.summarize && !deps.guard?.overBudget()) {
+        updateChatSummary(deps.store, helpers.summarize, run.threadId)
+          .then((used) => used && deps.guard?.record(used))
+          .catch(() => {});
+      }
     } catch (err) {
       clearDraftTimer();
       const stopped = run.abort.signal.aborted;
@@ -144,7 +171,7 @@ function startReply(deps: AppDeps, runs: RunRegistry, run: Run, turnId: number, 
       deps.store.finish(turnId, { assistantText: text, sources: [], queries: [], status: stopped ? "interrupted" : "failed" });
       // A reply cut short never reports usage, so what it visibly consumed is estimated.
       if (text) {
-        const prompt = options.history.reduce((n, t) => n + t.userText.length + t.assistantText.length, options.context.length + options.userText.length);
+        const prompt = history.reduce((n, t) => n + t.userText.length + t.assistantText.length, context.length + userText.length);
         deps.guard?.record({ model: deps.currentModel?.() ?? "unknown", inputTokens: estimateTokens(prompt), outputTokens: estimateTokens(text.length), searches });
       }
       if (timedOut) run.emit({ type: "error", text: "This reply took too long and was stopped." });
@@ -192,15 +219,10 @@ async function handleChat(req: IncomingMessage, res: ServerResponse, deps: AppDe
   const now = (deps.now ?? Date.now)();
   for (const fact of extractFacts(userText)) deps.store.saveFact(fact.key, fact.value, now);
   const history = fitHistory(deps.store.thread(threadId, HISTORY_TURNS).filter((t) => t.status === "ok" || t.status === "interrupted"));
-  const found = recall(deps.store, userText, now, tz, new Set(history.map((t) => t.id)));
-  if (found.lookedUp) {
-    run.emit({ type: "memory", refs: found.refs, found: found.turns.length + found.inHistory, outsideWindow: found.outsideWindow });
-  }
-  const context = renderContext(found, now, tz, deps.store.facts());
   const turnId = deps.store.begin(threadId, now, userText);
 
   attach(res, run, 0);
-  startReply(deps, runs, run, turnId, { history, userText, context, tz });
+  startReply(deps, runs, run, turnId, { history, userText, tz, now });
 }
 
 async function handleStop(req: IncomingMessage, res: ServerResponse, runs: RunRegistry): Promise<void> {
@@ -343,6 +365,7 @@ function main(): void {
     settings,
     guard: new SpendGuard(store, config.limits),
     currentModel: () => settings.active()?.model ?? "unknown",
+    helpers: () => settings.helpers(),
     run: (options) => settings.engine()?.run(options) ?? Promise.reject(new NoEngineError()),
   });
 

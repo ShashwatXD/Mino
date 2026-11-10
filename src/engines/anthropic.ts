@@ -5,7 +5,7 @@ import { citedFirst, MAX_OUTPUT_TOKENS, MAX_SEARCHES, pastPairs, REFUSAL_TEXT, S
 
 type MessageParam = Anthropic.Beta.Messages.BetaMessageParam;
 
-export interface AnthropicOptions extends TurnOptions {
+interface AnthropicOptions extends TurnOptions {
   client: Pick<Anthropic, "beta">;
   model: string;
   effort: Effort;
@@ -14,7 +14,7 @@ export interface AnthropicOptions extends TurnOptions {
 const MAX_CONTINUATIONS = 2;
 
 /** Replays plain text only, so history stays a stable, cacheable, append-only prefix. */
-export function historyMessages(history: Turn[], tz: string): MessageParam[] {
+function historyMessages(history: Turn[], tz: string): MessageParam[] {
   const pairs = pastPairs(history, tz);
   return pairs.flatMap((pair, i): MessageParam[] => [
     { role: "user", content: pair.user },
@@ -55,7 +55,7 @@ export async function runTurn(options: AnthropicOptions): Promise<TurnResult> {
         fallbacks: "default",
         output_config: { effort },
         system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
-        tools: [{ type: "web_search_20260209", name: "web_search", max_uses: MAX_SEARCHES }],
+        tools: [{ type: "web_search_20260209", name: "web_search", max_uses: options.maxSearches ?? MAX_SEARCHES }],
         messages,
       } as unknown as Anthropic.Beta.Messages.MessageCreateParamsStreaming,
       { signal },

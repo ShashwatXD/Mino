@@ -15,13 +15,13 @@ test("whichever key is present turns on that engine", () => {
   assert.equal(loadConfig({ ANTHROPIC_API_KEY: CLAUDE }).provider, "anthropic");
   const openai = loadConfig({ OPENAI_API_KEY: OPENAI });
   assert.equal(openai.provider, "openai");
-  assert.equal(openai.model, "gpt-6-astra");
+  assert.equal(openai.model, "gpt-6-luna");
 });
 
 test("Gemini is the default when several keys are present", () => {
   const config = loadConfig({ OPENAI_API_KEY: OPENAI, ANTHROPIC_API_KEY: CLAUDE, GEMINI_API_KEY: GEMINI });
   assert.equal(config.provider, "gemini");
-  assert.equal(config.model, "gemini-3.8-flash");
+  assert.equal(config.model, "gemini-3.1-flash-lite");
   assert.deepEqual(config.available, ["gemini", "anthropic", "openai"]);
 });
 
@@ -57,7 +57,7 @@ test("blank keys count as missing and the app still loads", () => {
 
 test("a MODEL from another provider is not sent to the active engine", () => {
   const config = loadConfig({ GEMINI_API_KEY: GEMINI, MODEL: "claude-opus-5-5" });
-  assert.equal(config.model, "gemini-3.8-flash");
+  assert.equal(config.model, "gemini-3.1-flash-lite");
   assert.match(config.warnings[0], /does not belong/);
   assert.equal(loadConfig({ GEMINI_API_KEY: GEMINI, MODEL: "gemini-3.6-flash" }).model, "gemini-3.6-flash");
 });

@@ -11,7 +11,7 @@ import {
   type TurnResult,
 } from "./shared.ts";
 
-export interface GeminiOptions extends TurnOptions {
+interface GeminiOptions extends TurnOptions {
   client: { models: Pick<GoogleGenAI["models"], "generateContentStream"> };
   model: string;
 }

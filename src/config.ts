@@ -7,9 +7,9 @@ export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 export type Effort = (typeof EFFORTS)[number];
 
 export const DEFAULT_MODELS: Record<Provider, string> = {
-  gemini: "gemini-3.8-flash",
+  gemini: "gemini-3.1-flash-lite",
   anthropic: "claude-sonnet-5-5",
-  openai: "gpt-6-astra",
+  openai: "gpt-6-luna",
 };
 
 const blankToUndefined = (value: unknown) => {

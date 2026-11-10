@@ -7,6 +7,13 @@ const PRICES: [string, number, number][] = [
   ["gemini-3.1-flash-lite", 0.25, 1.5],
   ["gemini-3.5-flash-lite", 0.25, 1.5],
   ["gemini-3.8-flash", 1.5, 7.5],
+  ["gemini-3.6-flash", 1.5, 7.5],
+  ["gemini-3.5-flash", 1.5, 7.5],
+  ["claude-haiku-5-5", 0.1, 0.5],
+  ["gpt-6-luna", 0.1, 0.5],
+  ["gpt-6.1-terra", 1, 5],
+  ["gpt-6.1-sol", 2, 10],
+  ["gpt-6-astra", 10, 50],
   ["claude-sonnet-5-5", 2, 10],
   ["claude-opus-5-5", 4, 20],
   ["claude-opus", 5, 25],
@@ -59,6 +66,11 @@ export class SpendGuard {
     this.recent.push(now);
     this.store.addUsage(this.day(), 0, 1);
     return null;
+  }
+
+  /** Background work checks this, since nobody is waiting on it and it can simply skip. */
+  overBudget(): boolean {
+    return this.store.usage(this.day()).costUsd >= this.limits.dailyBudgetUsd;
   }
 
   record(usage: Usage): void {
