@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mino</title>
+<style>
+:root{--bg:#faf9f7;--panel:#fff;--text:#1d1c1a;--muted:#6f6b64;--line:#e6e2db;--accent:#1f5eff;--user:#efece6}
+@media (prefers-color-scheme:dark){:root{--bg:#171614;--panel:#201f1c;--text:#ece9e3;--muted:#a09b92;--line:#35322d;--accent:#7ea2ff;--user:#2b2925}}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;flex-direction:column}
+header{display:flex;justify-content:flex-end;padding:10px 16px}
+button{font:inherit;cursor:pointer;border-radius:8px}
+#new{background:none;border:1px solid var(--line);color:var(--muted);padding:4px 12px;font-size:14px}
+#log{flex:1;overflow-y:auto;padding:0 16px}
+.inner{max-width:720px;margin:0 auto}
+.msg{margin:20px 0}
+.user{background:var(--user);padding:10px 14px;border-radius:14px;width:fit-content;max-width:85%;margin-left:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+.answer{overflow-wrap:anywhere}
+.answer>:first-child{margin-top:0}.answer>:last-child{margin-bottom:0}
+.answer a{color:var(--accent)}
+.answer pre{background:var(--user);padding:12px;border-radius:8px;overflow-x:auto}
+.answer table{border-collapse:collapse;display:block;overflow-x:auto}
+.answer th,.answer td{border:1px solid var(--line);padding:6px 10px}
+.status{color:var(--muted);font-size:14px;margin-bottom:6px}
+.status:empty{display:none}
+.sources{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.sources a{font-size:13px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:2px 10px;text-decoration:none;max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.error{color:#c0392b}
+form{padding:12px 16px 18px}
+.box{max-width:720px;margin:0 auto;display:flex;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:8px}
+textarea{flex:1;border:0;outline:0;resize:none;background:none;color:inherit;font:inherit;padding:6px;max-height:180px}
+#send{background:var(--accent);color:#fff;border:0;padding:0 16px}
+#send:disabled{opacity:.5;cursor:default}
+</style>
+</head>
+<body>
+<header><button id="new" type="button">New chat</button></header>
+<main id="log"><div class="inner" id="messages"></div></main>
+<form id="form"><div class="box">
+  <textarea id="input" rows="1" placeholder="Ask anything" aria-label="Message" autofocus></textarea>
+  <button id="send" type="submit">Send</button>
+</div></form>
+<script src="/vendor/marked.js"></script>
+<script src="/vendor/purify.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const messages = $("messages"), log = $("log"), input = $("input"), send = $("send");
+const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+const load = () => { try { return localStorage.getItem("threadId"); } catch { return null; } };
+const store = (id) => { try { id ? localStorage.setItem("threadId", id) : localStorage.removeItem("threadId"); } catch {} };
+let threadId = load();
+let controller = null;
+
+const toBottom = () => { log.scrollTop = log.scrollHeight; };
+const html = (text) => DOMPurify.sanitize(marked.parse(text));
+
+function addUser(text) {
+  const el = document.createElement("div");
+  el.className = "msg user";
+  el.textContent = text;
+  messages.append(el);
+}
+
+function addAnswer() {
+  const wrap = document.createElement("div");
+  wrap.className = "msg";
+  const status = document.createElement("div"); status.className = "status";
+  const answer = document.createElement("div"); answer.className = "answer";
+  const sources = document.createElement("div"); sources.className = "sources";
+  wrap.append(status, answer, sources);
+  messages.append(wrap);
+  return { status, answer, sources };
+}
+
+function renderSources(el, list) {
+  el.replaceChildren();
+  const cited = list.filter((s) => s.cited);
+  for (const s of (cited.length ? cited : list).slice(0, 8)) {
+    let url;
+    try { url = new URL(s.url); } catch { continue; }
+    if (!/^https?:$/.test(url.protocol)) continue;
+    const a = document.createElement("a");
+    a.href = url.href; a.target = "_blank"; a.rel = "noopener noreferrer";
+    a.title = s.title || url.href;
+    a.textContent = url.hostname.includes("vertexaisearch") ? (s.title || "source") : url.hostname.replace(/^www\./, "");
+    el.append(a);
+  }
+}
+
+function setBusy(busy) {
+  send.textContent = busy ? "Stop" : "Send";
+  input.disabled = false;
+}
+
+async function ask(text) {
+  addUser(text);
+  const view = addAnswer();
+  view.status.textContent = "Thinking";
+  toBottom();
+  controller = new AbortController();
+  setBusy(true);
+  let full = "", frame = 0;
+  const paint = () => { frame = 0; view.answer.innerHTML = html(full); toBottom(); };
+
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadId, message: text, timezone }),
+      signal: controller.signal,
+    });
+    if (!res.ok || !res.body) throw new Error("Request failed");
+    const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buffer = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += value;
+      const chunks = buffer.split("\n\n");
+      buffer = chunks.pop();
+      for (const chunk of chunks) {
+        if (!chunk.startsWith("data: ")) continue;
+        const e = JSON.parse(chunk.slice(6));
+        if (e.type === "text") {
+          full += e.text; view.status.textContent = "";
+          if (!frame) frame = requestAnimationFrame(paint);
+        } else if (e.type === "search") view.status.textContent = "Searching: " + e.query;
+        else if (e.type === "status") view.status.textContent = e.text;
+        else if (e.type === "sources") renderSources(view.sources, e.sources);
+        else if (e.type === "done") { threadId = e.threadId; store(threadId); }
+        else if (e.type === "error") { view.answer.classList.add("error"); full = e.text; }
+      }
+    }
+  } catch (err) {
+    if (err.name !== "AbortError") { view.answer.classList.add("error"); full = "Could not reach the server."; }
+  }
+  if (frame) cancelAnimationFrame(frame);
+  view.status.textContent = "";
+  if (full) paint();
+  controller = null;
+  setBusy(false);
+  input.focus();
+}
+
+$("form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  if (controller) { controller.abort(); return; }
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = ""; input.style.height = "auto";
+  ask(text);
+});
+input.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("form").requestSubmit(); }
+});
+input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = input.scrollHeight + "px"; });
+$("new").addEventListener("click", () => {
+  if (controller) controller.abort();
+  threadId = null; store(null); messages.replaceChildren(); input.focus();
+});
+
+(async () => {
+  if (!threadId) return;
+  try {
+    const turns = await (await fetch("/api/thread?id=" + encodeURIComponent(threadId))).json();
+    for (const t of turns) {
+      addUser(t.userText);
+      const view = addAnswer();
+      view.answer.innerHTML = html(t.assistantText || "");
+      renderSources(view.sources, t.sources);
+    }
+    toBottom();
+  } catch {}
+})();
+</script>
+</body>
+</html>
