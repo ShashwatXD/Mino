@@ -97,8 +97,8 @@ test("Gemini keeps history first and the changing context last", () => {
   const contents = geminiContents(options(() => {}));
   assert.deepEqual(contents.map((c) => c.role), ["user", "model", "user"]);
   assert.match(contents[0].parts![0].text!, /3 Nov 2026/);
-  assert.equal(contents[2].parts![0].text, "hello");
-  assert.match(contents[2].parts![1].text!, /Current time/);
+  assert.equal(contents[2].parts!.length, 1);
+  assert.match(contents[2].parts![0].text!, /<application_context>\nCurrent time[\s\S]*<\/application_context>\n\n<user_message>\nhello\n<\/user_message>/);
 });
 
 test("Gemini streams text and reads grounding into sources", async () => {

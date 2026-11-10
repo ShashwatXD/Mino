@@ -39,9 +39,8 @@ export interface Helpers {
 /** The local pass decides this, so clear messages never pay for a model call. */
 export function needsUnderstanding(text: string, local: Recall): boolean {
   // A date that was understood needs no help, whether or not that day has any chats.
-  if (local.refs.length > 0) return false;
-  const foundNothing = local.lookedUp && local.turns.length === 0 && local.inHistory === 0;
-  return HINGLISH.test(text) || VAGUE.test(text) || local.usedFallback || foundNothing;
+  if (local.requested) return false;
+  return HINGLISH.test(text) || VAGUE.test(text) || local.kind === "latest" || local.kind === "no_record";
 }
 
 async function withTimeout<T>(work: (signal: AbortSignal) => Promise<T>): Promise<T | null> {
@@ -115,10 +114,10 @@ export async function buildContext(options: BuildOptions): Promise<BuiltContext>
     : undefined;
   if (hint) found = recall(store, text, now, tz, excludeIds, { hint });
 
-  const recheck = (understanding?.intent === "recheck" || RECHECK.test(text)) && found.turns.length + found.inHistory > 0;
+  const recheck = (understanding?.intent === "recheck" || RECHECK.test(text)) && found.turns.length > 0 && found.kind !== "related";
   const notes: string[] = [];
   if (recheck) {
-    notes.push(`The user wants earlier information re-checked. Take each item from the record and run a separate web_search for it, up to ${RECHECK_SEARCHES}.`);
+    notes.push(`The user wants earlier information re-checked. Take each item from the log and run a separate web_search for it, up to ${RECHECK_SEARCHES}. Unless a source shows the value on both dates, say "no evidence of change", not "no change".`);
   }
   if (understanding && !understanding.needs_web && !recheck) notes.push("This message does not need a web search.");
   if (understanding?.standalone_query) notes.push(`The message appears to mean: ${JSON.stringify(understanding.standalone_query)}`);

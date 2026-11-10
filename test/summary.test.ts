@@ -78,7 +78,7 @@ test("other chats appear in every prompt, by summary or else by opening question
   const built = await build(store, "How does MVCC work?", "current");
   assert.match(built.context, /Neon \$19/);
   assert.match(built.context, /Best CRM tools/);
-  assert.equal(built.found.lookedUp, false);
+  assert.equal(built.found.kind, "none");
 });
 
 test("the current chat is not listed among recent chats", async () => {
@@ -127,7 +127,7 @@ test("an on-topic older chat is only a short excerpt", async () => {
   const store = new Store(":memory:");
   add(store, "old", NOW - 86_400_000, "Compare CRM tools", "z".repeat(5000));
   const built = await build(store, "woh CRM tools wala", "t");
-  assert.equal(built.found.related, true);
+  assert.equal(built.found.kind, "related");
   assert.ok(built.context.length < 2500, String(built.context.length));
 });
 

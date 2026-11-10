@@ -50,7 +50,7 @@ test("windows use the user's time zone, not UTC", () => {
   seed(store, istDay(3) + 30 * 60_000, "Early question", "Early answer");
   const found = recall(store, "What did I ask you on 3 November?", NOW, TZ, new Set());
   assert.equal(found.turns.length, 1);
-  assert.equal(found.refs[0].matches, 1);
+  assert.equal(found.requested?.matches, 1);
 });
 
 test("date lookups return that day's turns, on topic first", () => {
@@ -76,27 +76,25 @@ test("a wrong date still finds the topic and flags the mismatch", () => {
   const store = new Store(":memory:");
   seed(store, istDay(4), "Compare Postgres hosting", "Neon starts at $19.");
   const found = recall(store, "Last Tuesday I asked about Postgres hosting", NOW, TZ, new Set());
-  assert.equal(found.outsideWindow, true);
-  assert.match(renderContext(found, NOW, TZ), /other dates/);
+  assert.equal(found.kind, "other_date");
+  assert.match(renderContext(found, NOW, TZ), /happened on/);
 });
 
 test("ordinary questions skip memory entirely", () => {
   const store = new Store(":memory:");
   seed(store, istDay(3), "Postgres hosting", "Neon");
   const found = recall(store, "How does Postgres MVCC work?", NOW, TZ, new Set());
-  assert.equal(found.lookedUp, false);
+  assert.equal(found.kind, "none");
   assert.equal(renderContext(found, NOW, TZ).split("\n").length, 1);
 });
 
-test("a turn already in this chat is not reported as missing", () => {
+test("a turn already in this chat is still found", () => {
   const store = new Store(":memory:");
   const id = seed(store, istDay(10), "Compare Postgres hosting", "Neon");
   const found = recall(store, "What did I ask earlier?", NOW, TZ, new Set([id]));
-  assert.equal(found.turns.length, 0);
-  assert.equal(found.inHistory, 1);
-  const context = renderContext(found, NOW, TZ);
-  assert.match(context, /already in the conversation above/);
-  assert.doesNotMatch(context, /holds nothing/);
+  assert.equal(found.kind, "latest");
+  assert.deepEqual(found.turns.map((t) => t.id), [id]);
+  assert.doesNotMatch(renderContext(found, NOW, TZ), /holds nothing/);
 });
 
 test("a question naming no topic falls back to the latest turns", () => {

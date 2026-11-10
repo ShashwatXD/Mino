@@ -44,6 +44,66 @@ test("the right chat is found among 500 despite a misspelled topic", () => {
   }
 });
 
+test("a date in an ordinary question is not treated as a past chat", () => {
+  const store = new Store(":memory:");
+  add(store, NOW - 2 * DAY, "Pizza dough recipe");
+  for (const text of ["What changed in Postgres hosting pricing this year?", "What happened in AI on 3 November?", "Any news from last week?"]) {
+    const found = recall(store, text, NOW, TZ, new Set());
+    assert.equal(found.requested, null, text);
+    assert.equal(found.kind, "none", text);
+  }
+});
+
+test("a date about our own chats still counts", () => {
+  const store = new Store(":memory:");
+  for (const text of ["What did I ask you on 3 November?", "On Monday we shortlisted 5 CRM tools.", "Last Tuesday I asked about hosting.", "3 novbber ko kya tha", "kal kya poocha tha"]) {
+    assert.ok(recall(store, text, NOW, TZ, new Set()).requested, text);
+  }
+});
+
+test("a match from another date states the real date, even within this chat", () => {
+  const store = new Store(":memory:");
+  const id = add(store, NOW - 3_600_000, "Compare Neon Postgres hosting", "Launch plan is $0.106");
+  const found = recall(store, "Last Tuesday I asked you about Postgres hosting. Has any pricing changed since then?", NOW, TZ, new Set([id]));
+  assert.equal(found.kind, "other_date");
+  assert.deepEqual(found.turns.map((t) => t.id), [id]);
+  const context = renderContext(found, NOW, TZ);
+  assert.match(context, /Nothing was logged on Tue, 3 Nov 2026/);
+  assert.match(context, /happened on Tue, 10 Nov 2026/);
+  assert.match(context, /Launch plan is \$0\.106/);
+});
+
+test("the message's own turn is never reported as a past chat", () => {
+  const store = new Store(":memory:");
+  store.begin("t", NOW, "What did I ask you today?");
+  assert.equal(recall(store, "What did I ask you today?", NOW, TZ, new Set()).kind, "no_record");
+});
+
+test("asking when a topic was discussed finds it, in this chat or another", () => {
+  const store = new Store(":memory:");
+  const id = add(store, NOW - 3_600_000, "Compare Postgres hosting prices", "Neon");
+  for (const inPrompt of [new Set<number>(), new Set([id])]) {
+    const found = recall(store, "when was our last conversation on postgres", NOW, TZ, inPrompt);
+    assert.equal(found.kind, "topic");
+    assert.match(renderContext(found, NOW, TZ), /what was said earlier, on Tue, 10 Nov 2026/);
+  }
+});
+
+test("a later 'today' does not replace the date being asked about", () => {
+  const store = new Store(":memory:");
+  add(store, NOW - 7 * DAY, "Old question");
+  add(store, NOW - 3_600_000, "Today's question");
+  const found = recall(store, "What did I ask you on 3 November? Is your answer still correct today?", NOW, TZ, new Set());
+  assert.deepEqual(found.turns.map((t) => t.userText), ["Old question"]);
+});
+
+test("every kind of finding produces a statement for the model", () => {
+  const store = new Store(":memory:");
+  assert.match(renderContext(recall(store, "What did I ask on 1 January?", NOW, TZ, new Set()), NOW, TZ), /Nothing was logged on .* holds nothing/);
+  assert.match(renderContext(recall(store, "what about that postgres answer you told me", NOW, TZ, new Set()), NOW, TZ), /holds nothing/);
+  assert.equal(renderContext(recall(store, "hello there friend", NOW, TZ, new Set()), NOW, TZ).split("\n").length, 1);
+});
+
 test("recall stays fast with 5,000 chats", () => {
   const store = new Store(":memory:");
   for (let i = 0; i < 5000; i++) add(store, NOW - i * 60_000, `Question ${i} about gardening tomatoes`, "Water daily and check the soil for moisture levels");
@@ -56,7 +116,7 @@ test("a topic mentioned without trigger words is still remembered", () => {
   const store = new Store(":memory:");
   add(store, NOW - 5 * DAY, "We shortlisted CRM tools HubSpot and Pipedrive");
   const found = recall(store, "woh CRM tools wala kya hua", NOW, TZ, new Set());
-  assert.equal(found.related, true);
+  assert.equal(found.kind, "related");
   assert.match(renderContext(found, NOW, TZ), /Pipedrive/);
   assert.match(renderContext(found, NOW, TZ), /only if they help/);
 });
@@ -64,14 +124,14 @@ test("a topic mentioned without trigger words is still remembered", () => {
 test("a weak overlap does not pull unrelated chats into the prompt", () => {
   const store = new Store(":memory:");
   add(store, NOW - DAY, "Compare Postgres hosting prices", "Neon");
-  assert.equal(recall(store, "How does Postgres MVCC locking work internally", NOW, TZ, new Set()).lookedUp, false);
-  assert.equal(recall(store, "Write a poem about the ocean", NOW, TZ, new Set()).lookedUp, false);
+  assert.equal(recall(store, "How does Postgres MVCC locking work internally", NOW, TZ, new Set()).kind, "none");
+  assert.equal(recall(store, "Write a poem about the ocean", NOW, TZ, new Set()).kind, "none");
 });
 
 test("similar-looking words do not count as a match", () => {
   const store = new Store(":memory:");
   add(store, NOW - DAY, "Recipes for pasta sauce", "Use tomatoes");
-  assert.equal(recall(store, "paste this code", NOW, TZ, new Set()).lookedUp, false);
+  assert.equal(recall(store, "paste this code", NOW, TZ, new Set()).kind, "none");
 });
 
 test("recalled context stays within its budget however long the chats are", () => {

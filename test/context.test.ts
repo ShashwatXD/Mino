@@ -126,7 +126,7 @@ test("a slow small model is cut off instead of delaying the reply", async () => 
 });
 
 test("a re-check on nothing stays at the normal search cap", async () => {
-  const built = await build(new Store(":memory:"), "Has any pricing changed since 1 January?");
+  const built = await build(new Store(":memory:"), "What did I ask on 1 January? Has any pricing changed?");
   assert.equal(built.maxSearches, 4);
   assert.match(built.context, /holds nothing/);
 });

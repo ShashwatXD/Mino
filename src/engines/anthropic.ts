@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Effort } from "../config.ts";
 import type { Source, Turn } from "../store.ts";
-import { citedFirst, MAX_OUTPUT_TOKENS, MAX_SEARCHES, pastPairs, REFUSAL_TEXT, SYSTEM_PROMPT, type TurnOptions, type TurnResult } from "./shared.ts";
+import { citedFirst, EMPTY_TEXT, MAX_OUTPUT_TOKENS, MAX_SEARCHES, pastPairs, REFUSAL_TEXT, SYSTEM_PROMPT, type TurnOptions, type TurnResult } from "./shared.ts";
 
 type MessageParam = Anthropic.Beta.Messages.BetaMessageParam;
 
@@ -116,8 +116,8 @@ export async function runTurn(options: AnthropicOptions): Promise<TurnResult> {
     messages.push({ role: "assistant", content: message.content as never });
   }
 
-  if (stopReason === "refusal" && !text) {
-    text = REFUSAL_TEXT;
+  if (!text) {
+    text = stopReason === "refusal" ? REFUSAL_TEXT : EMPTY_TEXT;
     emit({ type: "text", text });
   }
 

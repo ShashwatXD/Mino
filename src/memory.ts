@@ -18,13 +18,14 @@ const STOPWORDS = new Set(
   shipped since so some something still tell than that the their them then there these they this to today told
   us was we were what when which who why will with would you your them monday tuesday wednesday thursday friday
   saturday sunday january february march april may june july august september october november december
-  yesterday week month year ago answer earlier previous previously said time
+  yesterday week month year ago answer earlier previous previously said time conversation chat talk
   kya kaise kab kaun kis woh wo yeh ye wala wali wale hai hain tha thi ko ka ki ke se mein par aur ya toh bhi nahi
   hua hui kar karo mera meri mere mujhe tum tumne aap poocha pucha puchha bola bataya baar`.split(/\s+/),
 );
 
-const REFERS_TO_PAST =
-  /\b(earlier|previous(ly)?|last time|you (said|told|recommended|suggested)|i asked|we (discussed|shortlisted|talked|compared|looked)|since then|still (correct|true|valid|accurate)|that answer|your answer|any of them|poocha|pucha|puchha|bataya|pichli baar|pehle)\b/i;
+// A date alone says nothing about our chats: "what happened on 3 November?" is a news question.
+const PAST_REFERENCE =
+  /\b(i|we)\s+(asked|said|talked|discussed|compared|shortlisted|looked|searched|told|mentioned|chatted)\b|\bdid (i|we|you)\b|\byou (said|told|recommended|suggested|answered)\b|\b(our|last)\s+(\w+\s+){0,2}(chat|conversation|discussion)\b|\b(earlier|previous(ly)?|last time|since then|that answer|your answer|any of them)\b|\bstill (correct|true|valid|accurate)\b|\b(poocha|pucha|puchha|bola|bataya|baat|kya tha|pichli baar|pehle)\b/i;
 
 export function keywordsOf(text: string): string[] {
   const tokens = text.toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}+#-]*/gu) ?? [];
@@ -72,20 +73,10 @@ function rankByTopic(store: Store, keywords: string[]): Scored[] {
     .sort((a, b) => b.score - a.score || b.turn.createdAt - a.turn.createdAt);
 }
 
-export interface RecalledRef {
+export interface RequestedDate {
   phrase: string;
   label: string;
   matches: number;
-}
-
-export interface Recall {
-  refs: RecalledRef[];
-  turns: Turn[];
-  outsideWindow: boolean;
-  lookedUp: boolean;
-  inHistory: number;
-  related: boolean;
-  usedFallback: boolean;
 }
 
 export interface Hint {
@@ -94,61 +85,61 @@ export interface Hint {
   timeRange: { from: string; to: string } | null;
 }
 
-interface RecallOptions {
-  hint?: Hint;
+/** Exactly one of these is true of any message, so nothing downstream has to combine flags. */
+export type RecallKind =
+  | "none" // not about our past chats
+  | "related" // not about the past, but an older chat is clearly on topic
+  | "on_date" // the requested date has chats
+  | "other_date" // nothing that day, but the topic was discussed on another date
+  | "topic" // about the past, found by topic
+  | "latest" // about the past, names no topic or date
+  | "no_record"; // about the past, and nothing was found
+
+export interface Recall {
+  kind: RecallKind;
+  requested: RequestedDate | null;
+  turns: Turn[];
 }
 
-const NOTHING: Recall = { refs: [], turns: [], outsideWindow: false, lookedUp: false, inHistory: 0, related: false, usedFallback: false };
+const nothing = (kind: RecallKind, requested: RequestedDate | null = null): Recall => ({ kind, requested, turns: [] });
+
+/** A message can also name "today" as when to check, so the earliest date is the one it asks about. */
+function requestedWindow(normalized: string, now: number, tz: string, hint?: Hint): TimeRef | null {
+  const [earliest] = resolveTimeRefs(normalized, now, tz).sort((a, b) => a.start - b.start);
+  if (earliest) return earliest;
+  return hint?.timeRange ? rangeRef(hint.timeRange.from, hint.timeRange.to, tz) : null;
+}
 
 /** Retrieval is deterministic code, so remembering cannot depend on the model choosing to look. */
-export function recall(store: Store, text: string, now: number, tz: string, excludeIds: Set<number>, options: RecallOptions = {}): Recall {
+export function recall(store: Store, text: string, now: number, tz: string, inPrompt: Set<number>, options: { hint?: Hint } = {}): Recall {
   const { hint } = options;
   const normalized = normalizeDates(text);
-  const timeRefs: TimeRef[] = resolveTimeRefs(normalized, now, tz);
-  if (timeRefs.length === 0 && hint?.timeRange) {
-    const ref = rangeRef(hint.timeRange.from, hint.timeRange.to, tz);
-    if (ref) timeRefs.push(ref);
-  }
-  const referential = REFERS_TO_PAST.test(normalized) || hint?.intent === "recall" || hint?.intent === "recheck";
   const keywords = [...new Set([...keywordsOf(normalized), ...keywordsOf((hint?.keywords ?? []).join(" "))])];
-  const ranked = rankByTopic(store, keywords);
+  // A turn still being written is this message, not a record of the past.
+  const ranked = rankByTopic(store, keywords).filter((s) => s.turn.status !== "streaming");
 
-  if (timeRefs.length === 0 && !referential) {
-    // No sign the user means the past, so only a clearly on-topic chat is worth the prompt space.
-    const strong = ranked.filter((s) => s.coverage >= STRONG_COVERAGE).map((s) => s.turn);
-    const turns = strong.filter((t) => !excludeIds.has(t.id)).slice(0, MAX_RELATED);
-    return turns.length ? { ...NOTHING, turns, lookedUp: true, related: true } : NOTHING;
+  if (!PAST_REFERENCE.test(normalized) && hint?.intent !== "recall" && hint?.intent !== "recheck") {
+    const turns = ranked.filter((s) => s.coverage >= STRONG_COVERAGE && !inPrompt.has(s.turn.id)).map((s) => s.turn).slice(0, MAX_RELATED);
+    return turns.length ? { kind: "related", requested: null, turns } : nothing("none");
   }
 
-  const rank = new Map(ranked.map((s, i) => [s.turn.id, i]));
-  const refs: RecalledRef[] = [];
-  const dated = new Map<number, Turn>();
-  for (const ref of timeRefs) {
-    const hits = store.inWindow(ref.start, ref.end);
-    refs.push({ phrase: ref.phrase, label: ref.label, matches: hits.length });
-    for (const t of hits) dated.set(t.id, t);
+  const topical = ranked.map((s) => s.turn).slice(0, MAX_RECALLED);
+  const window = requestedWindow(normalized, now, tz, hint);
+  if (window) {
+    const rank = new Map(ranked.map((s, i) => [s.turn.id, i]));
+    const onDate = store
+      .inWindow(window.start, window.end)
+      .filter((t) => t.status !== "streaming")
+      .sort((a, b) => (rank.get(a.id) ?? 999) - (rank.get(b.id) ?? 999) || a.createdAt - b.createdAt);
+    const requested = { phrase: window.phrase, label: window.label, matches: onDate.length };
+    if (onDate.length) return { kind: "on_date", requested, turns: onDate.slice(0, MAX_RECALLED) };
+    return topical.length ? { kind: "other_date", requested, turns: topical } : nothing("no_record", requested);
   }
 
-  let turns = [...dated.values()].sort(
-    (a, b) => (rank.get(a.id) ?? 999) - (rank.get(b.id) ?? 999) || a.createdAt - b.createdAt,
-  );
-  // A wrong date from the user should still surface the right conversation, flagged as such.
-  const outsideWindow = turns.length === 0 && ranked.length > 0;
-  if (timeRefs.length === 0 || outsideWindow) turns = ranked.map((s) => s.turn);
-  // "What did I ask earlier?" names no topic, so the latest turns are the honest answer.
-  const usedFallback = timeRefs.length === 0 && turns.length === 0 && keywords.length === 0;
-  if (usedFallback) turns = store.recent(MAX_RECALLED);
-
-  const fresh = turns.filter((t) => !excludeIds.has(t.id));
-  return {
-    ...NOTHING,
-    refs,
-    turns: fresh.slice(0, MAX_RECALLED),
-    outsideWindow,
-    lookedUp: true,
-    inHistory: turns.length - fresh.length,
-    usedFallback,
-  };
+  if (topical.length) return { kind: "topic", requested: null, turns: topical };
+  if (keywords.length) return nothing("no_record");
+  const latest = store.recent(MAX_RECALLED + 1).filter((t) => t.status !== "streaming").slice(-MAX_RECALLED);
+  return latest.length ? { kind: "latest", requested: null, turns: latest } : nothing("no_record");
 }
 
 /** Keeps the newest turns that fit. Older ones are not lost, because search can still reach them. */
@@ -257,6 +248,27 @@ interface ContextLayers {
   chatSummary: string | null;
 }
 
+/** One plain statement of what the log shows, so the model never has to work it out. */
+function describeFinding(result: Recall, tz: string): string {
+  const { kind, requested, turns } = result;
+  const realDates = () => [...new Set(turns.map((t) => formatDay(tz, t.createdAt)))].join(", ");
+  switch (kind) {
+    case "on_date":
+      return `"${requested!.phrase}" is ${requested!.label}. The log below is what was said that day.`;
+    case "other_date":
+      return `Nothing was logged on ${requested!.label}, the date the user mentioned. The conversation below happened on ${realDates()} instead. Say this first. Never describe it as having happened on ${requested!.label}, and treat ${realDates()} as the baseline for any comparison.`;
+    case "topic":
+    case "latest":
+      return `The log below is what was said earlier, on ${realDates()}. Give those real dates.`;
+    case "related":
+      return "These earlier turns may relate to this message. Use them only if they help, and do not mention them otherwise.";
+    case "no_record":
+      return `${requested ? `Nothing was logged on ${requested.label}. ` : ""}The conversation log holds nothing matching this reference. Say so plainly and never guess what was said. If the message names a topic you can look up, still use web_search and help with it now. If it refers to a list you have no record of, also ask the user to name the items.`;
+    case "none":
+      return "";
+  }
+}
+
 /** The per-turn context block: the clock, known facts, chat summaries, and matching past turns. */
 export function renderContext(
   result: Recall,
@@ -266,33 +278,15 @@ export function renderContext(
   layers: ContextLayers = { recentChats: [], chatSummary: null },
 ): string {
   const lines = [`Current time: ${formatStamp(tz, now)}.`, ...renderFacts(facts, tz), ...renderSummaries(layers, tz)];
-  if (!result.lookedUp) return lines.join("\n");
-
-  for (const r of result.refs) {
-    lines.push(`"${r.phrase}" resolves to ${r.label}. Stored turns in that window: ${r.matches}.`);
-  }
-  if (result.inHistory > 0) {
-    lines.push("Matching turns are already in the conversation above, each stamped with when it was asked. Answer from those.");
-  }
-  if (result.turns.length === 0) {
-    if (result.inHistory > 0) return lines.join("\n");
-    lines.push(
-      "The conversation log holds nothing matching this reference. Say so plainly and never guess what was said. If the message names a topic you can look up, still use web_search and help with it now. If it refers to a list you have no record of, also ask the user to name the items.",
-    );
-    return lines.join("\n");
-  }
-  if (result.outsideWindow) {
-    lines.push("Nothing was logged in the requested window. These turns match the topic but happened on other dates; tell the user the real date.");
-  }
-  if (result.related) {
-    lines.push("These earlier turns may relate to this message. Use them only if they help, and do not mention them otherwise.");
-  }
+  if (result.kind === "none") return lines.join("\n");
+  lines.push(describeFinding(result, tz));
+  if (result.turns.length === 0) return lines.join("\n");
 
   const rendered: string[] = [];
   let used = 0;
   for (const turn of result.turns) {
     // On-topic turns the user did not ask about are only a pointer, so they stay short.
-    const block = renderTurn(turn, tz, result.related ? RELATED_ANSWER_CHARS : MAX_ANSWER_CHARS);
+    const block = renderTurn(turn, tz, result.kind === "related" ? RELATED_ANSWER_CHARS : MAX_ANSWER_CHARS);
     if (rendered.length > 0 && used + block.length > RECALL_BUDGET_CHARS) break;
     rendered.push(block);
     used += block.length;

@@ -47,12 +47,6 @@ const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 const SETUP_COMMAND = 'echo "GEMINI_API_KEY=your_key_here" > .env && npm run dev';
 
-const EXAMPLES = [
-  "What changed in Postgres hosting pricing this year?",
-  "What did I ask you on 3 November?",
-  "Last Tuesday I asked you about Postgres hosting. Has any pricing changed since then?",
-];
-
 const readThread = () => { try { return localStorage.getItem("threadId"); } catch { return null; } };
 const writeThread = (id) => { try { id ? localStorage.setItem("threadId", id) : localStorage.removeItem("threadId"); } catch {} };
 
@@ -93,6 +87,7 @@ function addDayIfNew(at) {
 }
 
 function addUser(text, at) {
+  document.body.classList.remove("is-empty");
   addDayIfNew(at);
   const wrap = el("div", "msg mine");
   wrap.append(el("div", "bubble", text), el("div", "stamp mono", timeFormat.format(at)));
@@ -101,21 +96,11 @@ function addUser(text, at) {
 
 function addAnswer() {
   const wrap = el("div", "msg");
-  const recall = el("div", "recall mono"), status = el("div", "status mono");
+  const status = el("div", "status mono");
   const answer = el("div", "answer"), sources = el("div", "sources");
-  wrap.append(recall, status, answer, sources);
+  wrap.append(status, answer, sources);
   messages.append(wrap);
-  return { wrap, recall, status, answer, sources };
-}
-
-function renderRecall(node, event) {
-  node.replaceChildren();
-  for (const ref of event.refs) {
-    const count = ref.matches === 1 ? "1 chat" : ref.matches === 0 ? "no chats" : ref.matches + " chats";
-    node.append(el("span", "", `"${ref.phrase}" = ${ref.label} · ${count}`));
-  }
-  if (event.outsideWindow) node.append(el("span", "", "Found on a different date"));
-  if (!event.refs.length) node.append(el("span", "", event.found ? "Checked past chats · " + event.found + " found" : "Checked past chats · nothing found"));
+  return { wrap, status, answer, sources };
 }
 
 function renderSources(node, list) {
@@ -277,28 +262,42 @@ function addAnswerTools(view, text) {
   view.wrap.append(tools);
 }
 
+let typing = 0;
+
+/** Types the title one letter at a time. Screen readers get the whole text at once. */
+function typeTitle(node, text) {
+  const run = ++typing;
+  node.setAttribute("aria-label", text);
+  const shown = el("span");
+  shown.setAttribute("aria-hidden", "true");
+  const caret = el("span", "caret");
+  caret.setAttribute("aria-hidden", "true");
+  node.replaceChildren(shown, caret);
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) { shown.textContent = text; return; }
+  let i = 0;
+  const step = () => {
+    if (run !== typing) return;
+    shown.textContent = text.slice(0, ++i);
+    if (i < text.length) setTimeout(step, 70);
+  };
+  setTimeout(step, 200);
+}
+
 function showEmpty() {
   lastDay = null;
   messages.replaceChildren();
-  const hero = el("section", configured ? "hero" : "hero compact");
+  const hero = el("section", configured ? "hero centered" : "hero compact");
   const title = el("h1");
-  title.textContent = "Ask anything.";
   hero.append(title);
-
   if (configured) {
-    const list = el("ul", "prompts");
-    EXAMPLES.forEach((text, i) => {
-      const item = el("li"), button = el("button");
-      button.type = "button";
-      button.append(el("span", "mono", String(i + 1).padStart(2, "0")), el("span", "", text));
-      button.addEventListener("click", () => ask(text));
-      item.append(button);
-      list.append(item);
-    });
-    hero.append(list);
+    document.body.classList.add("is-empty");
+    typeTitle(title, "Ask anything.");
   } else {
-    hero.append(setupCard());
+    document.body.classList.remove("is-empty");
+    title.textContent = "Ask anything.";
   }
+
+  if (!configured) hero.append(setupCard());
   messages.append(hero);
 }
 
@@ -375,6 +374,15 @@ function fillModels(select, withManage) {
   }
 }
 
+/** A native select is as wide as its longest option, so it is sized to the chosen one instead. */
+function fitSelect(select) {
+  const probe = el("span", select.className, select.options[select.selectedIndex]?.text ?? "");
+  probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre;padding:0;margin:0;background:none";
+  document.body.append(probe);
+  select.style.width = Math.ceil(probe.getBoundingClientRect().width) + 20 + "px";
+  probe.remove();
+}
+
 function applySettings(data) {
   const was = configured;
   settingsData = data;
@@ -383,7 +391,7 @@ function applySettings(data) {
   input.disabled = !configured;
   input.placeholder = configured ? "Ask anything" : "Add an API key to start chatting";
   $("model").hidden = !configured;
-  if (configured) fillModels($("model"), true);
+  if (configured) { fillModels($("model"), true); fitSelect($("model")); }
   setBusy(Boolean(active));
   updateComposer();
   if (was !== configured && messages.querySelector(".hero")) showEmpty();
@@ -489,7 +497,6 @@ function apply(s, e) {
   s.retries = 0;
   switch (e.type) {
     case "text": s.full += e.text; s.view.status.textContent = ""; schedulePaint(s); break;
-    case "memory": renderRecall(s.view.recall, e); break;
     case "search": s.view.status.textContent = "Searching: " + e.query; break;
     case "status": s.view.status.textContent = e.text; break;
     case "sources": renderSources(s.view.sources, e.sources); break;

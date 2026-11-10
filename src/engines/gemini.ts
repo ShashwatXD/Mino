@@ -27,8 +27,7 @@ export function geminiContents(options: Pick<TurnOptions, "history" | "userText"
     ]),
     {
       role: "user",
-      // The clock goes in the last turn because anything earlier would change the cacheable prefix.
-      parts: [{ text: userText }, { text: `Context from the application, not written by the user:\n${context}` }],
+      parts: [{ text: `<application_context>\n${context}\n</application_context>\n\n<user_message>\n${userText}\n</user_message>` }],
     },
   ];
 }

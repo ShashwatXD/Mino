@@ -150,9 +150,6 @@ function startReply(deps: AppDeps, runs: RunRegistry, run: Run, turnId: number, 
       });
       context = built.context;
       for (const usage of built.usage) deps.guard?.record(usage);
-      if (built.found.lookedUp) {
-        run.emit({ type: "memory", refs: built.found.refs, found: built.found.turns.length + built.found.inHistory, outsideWindow: built.found.outsideWindow });
-      }
       run.abort.signal.throwIfAborted();
 
       const result = await deps.run({ history, userText, context, tz, emit, signal: run.abort.signal, maxSearches: built.maxSearches });
