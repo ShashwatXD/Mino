@@ -22,29 +22,28 @@ flowchart LR
 Memory has two halves. A small overview rides along with every message, and exact past turns are fetched only when the model asks for them.
 
 ```mermaid
-flowchart LR
-    subgraph always["Always in the prompt: small and capped"]
-        direction TB
-        L1["Current time and time zone"]
-        L2["Facts the user stated<br/>name, city, work, diet"]
-        L3["15 recent chats<br/>one summary each, 700 chars max"]
-        L4["This chat<br/>newest turns up to 30k chars,<br/>older ones as a summary"]
-        L1 --- L2 --- L3 --- L4
-    end
-    subgraph demand["Fetched on demand: search_history"]
-        direction TB
-        D1["By date range"]
-        D2["By topic, typos allowed"]
-        D3["By grep pattern or regex"]
-        D4["Inside one chat, page by page"]
-        D1 --- D2 --- D3 --- D4
+flowchart TB
+    subgraph always[Every prompt]
+        direction LR
+        A1[Time] ~~~ A2[Facts] ~~~ A3[Recent chats] ~~~ A4[This chat]
     end
     always --> M[Answering model]
-    M -- "up to 4 lookups a reply,<br/>8 turns or 12k chars each" --> demand
-    demand -- "exact turns with dates and sources,<br/>or a plain 'nothing on that day'" --> M
+    M <-->|search_history| demand
+    subgraph demand[On demand]
+        direction LR
+        D1[Date range] ~~~ D2[Topic] ~~~ D3[Grep] ~~~ D4[One chat]
+    end
 ```
 
-The overview tells the model what exists. The tool returns what was actually said, with its date, like `rg` over the chat log. Filters combine, and every result says how many turns matched, so the model can widen the search, narrow it, or read the next page. The always-on layers follow [ChatGPT's reported design](https://llmrefs.com/blog/reverse-engineering-chatgpt-memory) and summarizing older turns follows [LobeHub](https://github.com/lobehub/lobe-chat). Exact, dated recall is Mino's own, because a summary cannot quote what you asked on a given day.
+| Layer | What it holds | Limit |
+| --- | --- | --- |
+| Time | Current time and the user's time zone | — |
+| Facts | What the user stated: name, city, work, diet | 30 facts |
+| Recent chats | One summary per chat, or its title | 15 chats, 700 chars each |
+| This chat | Newest turns in full, older ones as a summary | 30,000 chars |
+| `search_history` | Exact past turns by date, topic with typos, grep or regex, or inside one chat, with dates and sources | 4 lookups a reply, 8 turns or 12,000 chars per result |
+
+The overview tells the model what exists. The tool returns what was actually said, with its date, like `rg` (ripgrep) over the chat log. Filters combine, and every result says how many turns matched, so the model can widen the search, narrow it, or read the next page. The always-on layers follow [ChatGPT's reported design](https://llmrefs.com/blog/reverse-engineering-chatgpt-memory) and summarizing older turns follows [LobeHub](https://github.com/lobehub/lobe-chat). Exact, dated recall is Mino's own, because a summary cannot quote what you asked on a given day.
 
 **The brief's examples**
 
