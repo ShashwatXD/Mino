@@ -42,7 +42,8 @@ export async function runGemini(options: GeminiOptions): Promise<TurnResult> {
   const config = {
     systemInstruction: SYSTEM_PROMPT,
     tools: [{ googleSearch: {} }, ...(withHistory ? [{ functionDeclarations: [{ name: HISTORY_TOOL.name, description: HISTORY_TOOL.description, parametersJsonSchema: HISTORY_TOOL.parameters }] }] : [])],
-    ...(withHistory ? { toolConfig: { includeServerSideToolInvocations: true } } : {}),
+    // Search calls then stream as parts the moment they start, which also lets them be replayed after a history lookup.
+    toolConfig: { includeServerSideToolInvocations: true },
     thinkingConfig: { thinkingLevel: THINKING[options.effort ?? "low"] },
     maxOutputTokens: MAX_OUTPUT_TOKENS,
     abortSignal: signal,
@@ -79,6 +80,15 @@ export async function runGemini(options: GeminiOptions): Promise<TurnResult> {
 
       for (const part of candidate.content?.parts ?? []) {
         parts.push(part);
+        if (part.toolCall && String(part.toolCall.toolType).includes("SEARCH")) {
+          const started = part.toolCall.args?.queries;
+          for (const query of Array.isArray(started) ? started : []) {
+            if (typeof query === "string" && !queries.includes(query)) {
+              queries.push(query);
+              emit({ type: "search", query });
+            }
+          }
+        }
         if (part.functionCall) calls.push(part.functionCall);
         else if (part.text && !part.thought) {
           const piece = paragraphJoin(text, part.text, newRound);

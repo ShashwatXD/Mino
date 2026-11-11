@@ -4,6 +4,10 @@ A chat agent with web search that remembers what it told you and when, then chec
 
 **[Read the design](DESIGN.md)** · **[Read the eval report](evals/REPORT.md)**
 
+## Demo
+
+[Watch the one-minute demo](docs/demo.mp4)
+
 ## Run
 
 Requires Node 22.13 or newer.

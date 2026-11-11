@@ -154,3 +154,20 @@ test("a per-message effort reaches Gemini's thinking level", async () => {
   await engine.run({ ...options([]), searchHistory: undefined, effort: "high" });
   assert.equal(engine.requests[0].config.thinkingConfig.thinkingLevel, "HIGH");
 });
+
+test("Gemini shows a web search when it starts, not when the answer arrives", async () => {
+  const shown: string[] = [];
+  const client = {
+    models: {
+      generateContentStream: async () =>
+        (async function* () {
+          yield { candidates: [{ content: { parts: [{ toolCall: { toolType: "GOOGLE_SEARCH_WEB", args: { queries: ["supabase pro price"] } } }] } }] };
+          yield { candidates: [{ content: { parts: [{ text: "Supabase Pro is $25." }] } }] };
+          yield { candidates: [{ finishReason: "STOP", content: { parts: [] }, groundingMetadata: { webSearchQueries: ["supabase pro price"] } }] };
+        })(),
+    },
+  } as any;
+  const result = await runGemini({ ...options([]), searchHistory: undefined, client, model: "m", emit: (e) => shown.push(e.type === "search" ? `search:${e.query}` : e.type) });
+  assert.deepEqual(shown.slice(0, 2), ["search:supabase pro price", "text"]);
+  assert.deepEqual(result.queries, ["supabase pro price"]);
+});

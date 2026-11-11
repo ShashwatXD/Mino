@@ -7,7 +7,11 @@ interface Stream {
   temporary: boolean;
   seq: number;
   full: string;
+  /** How much of `full` is on screen. Text arrives in bursts and is revealed a little each frame. */
+  shown: number;
   frame: number;
+  /** Set when the reply ended while text was still being revealed; runs once the reveal catches up. */
+  settle?: () => void;
   retries: number;
   lastByte: number;
   local: AbortController;
@@ -45,7 +49,7 @@ function detach() {
 }
 
 function beginStream(view: AnswerView, id: string, text: string): Stream {
-  const s: Stream = { gen: viewGen, threadId: id, view, text, temporary, seq: 0, full: "", frame: 0, retries: 0, lastByte: Date.now(), local: new AbortController() };
+  const s: Stream = { gen: viewGen, threadId: id, view, text, temporary, seq: 0, full: "", shown: 0, frame: 0, retries: 0, lastByte: Date.now(), local: new AbortController() };
   // A silent connection (sleep, network change) is dropped and resumed from the last event seen.
   s.watch = setInterval(() => { if (Date.now() - s.lastByte > 40000) s.local.abort(); }, 10000);
   view.answer.classList.add("streaming");
@@ -54,17 +58,40 @@ function beginStream(view: AnswerView, id: string, text: string): Stream {
   return s;
 }
 
+const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
+function render(s: Stream): void {
+  const stick = nearBottom();
+  s.view.answer.innerHTML = html(s.full.slice(0, s.shown));
+  if (stick) toBottom();
+}
+
+/** Shows everything received at once: on finishing, and when a hidden tab comes back. */
 function paint(s: Stream): void {
   s.frame = 0;
-  const stick = nearBottom();
-  s.view.answer.innerHTML = html(s.full);
-  if (stick) toBottom();
+  s.shown = s.full.length;
+  render(s);
+}
+
+/**
+ * Reveals buffered text one frame at a time, faster the further behind it is, so a burst
+ * shows within about 200 ms and a slow stream still moves at 2 characters a frame.
+ */
+function revealFrame(s: Stream): void {
+  s.frame = 0;
+  const behind = s.full.length - s.shown;
+  if (behind > 0) {
+    s.shown += reducedMotion.matches ? behind : Math.max(2, Math.ceil(behind / 12));
+    render(s);
+  }
+  if (s.shown < s.full.length) schedulePaint(s);
+  else s.settle?.();
 }
 
 // Hidden tabs do not run animation frames, so painting waits for visibilitychange.
 function schedulePaint(s: Stream): void {
   if (document.hidden || s.frame) return;
-  s.frame = requestAnimationFrame(() => paint(s));
+  s.frame = requestAnimationFrame(() => revealFrame(s));
 }
 
 function addNote(view: AnswerView, text: string, failed?: boolean): void {
@@ -73,6 +100,15 @@ function addNote(view: AnswerView, text: string, failed?: boolean): void {
 
 function finish(s: Stream, outcome: "ok" | "stopped" | "failed", message?: string): void {
   if (s !== active) return;
+  // A finished reply lets its last words flow in before the tools appear under it.
+  if (outcome === "ok" && s.shown < s.full.length && !document.hidden) {
+    s.settle = () => {
+      s.settle = undefined;
+      finish(s, outcome, message);
+    };
+    schedulePaint(s);
+    return;
+  }
   clearInterval(s.watch);
   if (s.frame) cancelAnimationFrame(s.frame);
   s.frame = 0;

@@ -53,7 +53,7 @@ The overview tells the model what exists. The tool returns what was actually sai
 | "What did I ask you on 3 November?" | Quotes it, re-checks what can change | Says so, invents nothing |
 | "Last Tuesday I asked about Postgres hosting..." | Searches each provider, gives both dates | Says so, searches current pricing anyway |
 
-## Why this design
+## Architectural decisions
 
 - **One source of truth for the past.** An earlier version also recalled in code before the model ran. The two could disagree, and a wrong match stayed in the prompt. Now only the tool answers, so there is one result to trust.
 - **The tool says what it found.** That day, nothing that day but strong matches on other dates, or nothing at all. The model gets that sentence, not a guess.
@@ -88,7 +88,7 @@ Mino is one user on one process, by design. More users would need a user ID on e
 | Vector database | These lookups are dates and names |
 | Sending all history | Slow and costly on every message |
 | Own search pipeline | Hosted search already gives results and citations |
-| Vercel AI SDK | Each provider's search and citations differ, and I wanted to map and test them directly |
+| One SDK for every provider (Vercel AI SDK, LangChain) | Each provider's search and citations differ, and I wanted to map and test them directly |
 | Next.js | A chat needs one page and one streaming endpoint |
 
 ## With another week
