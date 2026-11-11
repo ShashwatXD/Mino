@@ -93,7 +93,7 @@ test("Gemini stays the default when several keys are added", async () => {
   await m.setKey("anthropic", CLAUDE);
   await m.setKey("gemini", GEMINI);
   assert.equal(m.active()?.provider, "gemini");
-  assert.equal(m.active()?.model, "gemini-3.1-flash-lite");
+  assert.equal(m.active()?.model, "gemini-3.8-flash");
 });
 
 test("the chosen model survives a restart and switches the engine", async () => {
@@ -122,7 +122,7 @@ test("live model lists reach the selector, with the active model first", async (
   const m = manager({ GEMINI_API_KEY: GEMINI });
   await m.refreshModels();
   m.setModel("gemini", "gemini-3.6-flash");
-  assert.deepEqual(m.snapshot().providers[0].models, ["gemini-3.6-flash", "gemini-3.1-flash-lite", "gemini-3.8-flash"]);
+  assert.deepEqual(m.snapshot().providers[0].models, ["gemini-3.6-flash", "gemini-3.8-flash"]);
 });
 
 test("a corrupt settings file is ignored with a warning", () => {

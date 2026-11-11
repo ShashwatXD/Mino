@@ -1,13 +1,15 @@
 import { randomUUID } from "node:crypto";
 import type { ChatRequest } from "../config/config.ts";
-import { buildContext, type Helpers } from "../context/build.ts";
+import { buildContext } from "../context/build.ts";
 import { updateChatSummary } from "../context/summary.ts";
 import { nameChat } from "../context/title.ts";
 import type { Repositories } from "../db/repositories/index.ts";
 import type { Turn } from "../domain/turn.ts";
+import type { Helpers } from "../llm/small/index.ts";
 import type { AgentEvent, TurnOptions, TurnResult } from "../llm/types.ts";
 import { extractFacts } from "../memory/facts.ts";
 import { fitHistory } from "../memory/history.ts";
+import { searchHistory } from "../memory/search.ts";
 import type { Run, RunRegistry } from "../streaming/runs.ts";
 import { safeTimeZone } from "../text/time.ts";
 import { friendlyError, NoEngineError } from "./errors.ts";
@@ -96,7 +98,7 @@ function reply(deps: ChatDeps, runs: RunRegistry, run: Run, turnId: number, inpu
             .catch(() => {})
         : null;
     try {
-      const built = await buildContext({
+      const built = buildContext({
         store: deps.store,
         text: userText,
         now,
@@ -104,13 +106,20 @@ function reply(deps: ChatDeps, runs: RunRegistry, run: Run, turnId: number, inpu
         threadId: run.threadId,
         history,
         excludeIds: new Set([...history.map((t) => t.id), turnId]),
-        helpers,
       });
       context = built.context;
-      for (const usage of built.usage) deps.guard?.record(usage);
       run.abort.signal.throwIfAborted();
 
-      const result = await deps.run({ history, userText, context, tz, emit, signal: run.abort.signal, maxSearches: built.maxSearches });
+      const result = await deps.run({
+        history,
+        userText,
+        context,
+        tz,
+        emit,
+        signal: run.abort.signal,
+        maxSearches: built.maxSearches,
+        searchHistory: (query) => searchHistory(turns, query, tz),
+      });
       clearDraftTimer();
       turns.finish(turnId, { assistantText: result.text, sources: result.sources, queries: result.queries, status: "ok" });
       if (result.usage) deps.guard?.record(result.usage);

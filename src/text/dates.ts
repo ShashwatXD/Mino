@@ -7,15 +7,6 @@ const DATE_WORDS = [
   "yesterday",
 ];
 
-const HINGLISH_ALWAYS: Record<string, string> = {
-  pichhle: "last", pichle: "last", pichhla: "last", pichla: "last", pichhli: "last", pichli: "last",
-  hafte: "week", hafta: "week", mahine: "month", mahina: "month",
-};
-
-// "kal" means both yesterday and tomorrow, so it needs a past-tense word nearby.
-const HINGLISH_PAST_DAYS: Record<string, string> = { kal: "yesterday", aaj: "today", parso: "2 days ago", parson: "2 days ago" };
-const PAST_TENSE = /\b(poocha|pucha|puchha|puchi|bola|bataya|kaha|baat|tha|thi|asked|said|told)\b/i;
-
 function fixDateTypo(word: string): string {
   const lower = word.toLowerCase();
   if (word.length < 6 || DATE_WORDS.includes(lower)) return word;
@@ -25,16 +16,13 @@ function fixDateTypo(word: string): string {
   return word;
 }
 
-/** Rewrites misspelled and Hinglish date words into English a date parser understands. */
+/** Fixes misspelled date words so the date parser understands them. */
 export function normalizeDates(text: string): string {
-  const past = PAST_TENSE.test(text);
   return text
     .split(/(\s+)/)
     .map((word) => {
       const lower = word.toLowerCase().replace(/[^\p{L}]/gu, "");
       if (!lower) return word;
-      if (HINGLISH_ALWAYS[lower]) return HINGLISH_ALWAYS[lower];
-      if (HINGLISH_PAST_DAYS[lower] && past) return HINGLISH_PAST_DAYS[lower];
       return word.replace(/[\p{L}]+/u, fixDateTypo);
     })
     .join("");

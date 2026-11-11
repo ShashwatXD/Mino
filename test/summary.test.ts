@@ -129,7 +129,7 @@ test("no record tells the model to say so and still help", async () => {
 test("an on-topic older chat is only a short excerpt", async () => {
   const store = createRepositories(":memory:");
   add(store, "old", NOW - 86_400_000, "Compare CRM tools", "z".repeat(5000));
-  const built = await build(store, "woh CRM tools wala", "t");
+  const built = await build(store, "those CRM tools", "t");
   assert.equal(built.found.kind, "related");
   assert.ok(built.context.length < 2500, String(built.context.length));
 });

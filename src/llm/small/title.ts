@@ -14,5 +14,5 @@ Rules:
 
 export function createTitler(provider: Provider, apiKey: string, model: string): Titler {
   const complete = completer(provider, apiKey, model);
-  return (message, signal) => complete(TITLE_INSTRUCTIONS, `First message:\n${message}`, null, signal);
+  return (message, signal) => complete(TITLE_INSTRUCTIONS, `First message:\n${message}`, signal);
 }

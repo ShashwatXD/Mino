@@ -24,7 +24,6 @@ export function createSummarizer(provider: Provider, apiKey: string, model: stri
     complete(
       SUMMARIZE_INSTRUCTIONS,
       `Existing summary:\n${request.previous ?? "(none)"}\n\nNew turns:\n${renderTurns(request.turns)}`,
-      null,
       signal,
     );
 }

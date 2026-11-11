@@ -12,12 +12,12 @@ export interface Completion {
 
 const MAX_TOKENS = 1024;
 
-type Complete = (system: string, prompt: string, schema: object | null, signal: AbortSignal) => Promise<Completion>;
+type Complete = (system: string, prompt: string, signal: AbortSignal) => Promise<Completion>;
 
 export function completer(provider: Provider, apiKey: string, model: string): Complete {
   if (provider === "gemini") {
     const client = new GoogleGenAI({ apiKey });
-    return async (system, prompt, schema, signal) => {
+    return async (system, prompt, signal) => {
       const response = await client.models.generateContent({
         model,
         contents: prompt,
@@ -25,7 +25,6 @@ export function completer(provider: Provider, apiKey: string, model: string): Co
           systemInstruction: system,
           maxOutputTokens: MAX_TOKENS,
           abortSignal: signal,
-          ...(schema ? { responseMimeType: "application/json", responseJsonSchema: schema } : {}),
         },
       });
       const u = response.usageMetadata;
@@ -37,13 +36,13 @@ export function completer(provider: Provider, apiKey: string, model: string): Co
   }
   if (provider === "anthropic") {
     const client = new Anthropic({ apiKey });
-    return async (system, prompt, schema, signal) => {
+    return async (system, prompt, signal) => {
       const response = await client.messages.create(
         {
           model,
           max_tokens: MAX_TOKENS,
           system,
-          output_config: { effort: "low", ...(schema ? { format: { type: "json_schema" as const, schema: schema as Record<string, unknown> } } : {}) },
+          output_config: { effort: "low" },
           messages: [{ role: "user", content: prompt }],
         },
         { signal },
@@ -56,14 +55,13 @@ export function completer(provider: Provider, apiKey: string, model: string): Co
     };
   }
   const client = new OpenAI({ apiKey });
-  return async (system, prompt, schema, signal) => {
+  return async (system, prompt, signal) => {
     const response = await client.responses.create(
       {
         model,
         instructions: system,
         input: prompt,
         max_output_tokens: MAX_TOKENS,
-        ...(schema ? { text: { format: { type: "json_schema" as const, name: "result", schema: schema as Record<string, unknown>, strict: true } } } : {}),
       },
       { signal },
     );

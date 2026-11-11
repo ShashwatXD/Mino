@@ -6,8 +6,7 @@ import { createEngine } from "../llm/index.ts";
 import { listModels as realListModels } from "../llm/models.ts";
 import { createSummarizer } from "../llm/small/summarize.ts";
 import { createTitler } from "../llm/small/title.ts";
-import { createUnderstander } from "../llm/small/understand.ts";
-import type { Helpers } from "../context/build.ts";
+import type { Helpers } from "../llm/small/index.ts";
 import type { Engine } from "../llm/types.ts";
 
 const PROVIDER_INFO: Record<Provider, { label: string; keyUrl: string }> = {
@@ -104,7 +103,6 @@ export class SettingsManager {
       this.builtHelpers = {
         id,
         value: {
-          understand: createUnderstander(active.provider, apiKey, small),
           summarize: createSummarizer(active.provider, apiKey, small),
           title: createTitler(active.provider, apiKey, small),
         },

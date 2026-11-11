@@ -37,3 +37,9 @@ export interface Turn {
   queries: string[];
   status: TurnStatus;
 }
+
+export interface HistoryQuery {
+  query?: string;
+  from?: string;
+  to?: string;
+}

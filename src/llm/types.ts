@@ -1,4 +1,4 @@
-import type { Source, Turn } from "../domain/turn.ts";
+import type { HistoryQuery, Source, Turn } from "../domain/turn.ts";
 
 export type AgentEvent =
   | { type: "status"; text: string }
@@ -29,6 +29,8 @@ export interface TurnOptions {
   emit: (event: AgentEvent) => void;
   signal?: AbortSignal;
   maxSearches?: number;
+  /** The history tool's implementation. Engines only describe it to the model and pass calls through. */
+  searchHistory?: (query: HistoryQuery) => string;
 }
 
 export interface Engine {

@@ -7,9 +7,9 @@ const RELATED_ANSWER_CHARS = 600;
 const SUMMARY_CHARS = 700;
 const RECALL_BUDGET_CHARS = 16_000;
 
-const escapeXml = (s: string) => s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+export const escapeXml = (s: string) => s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
-function renderTurn(t: Turn, tz: string, maxAnswer = MAX_ANSWER_CHARS): string {
+export function renderTurn(t: Turn, tz: string, maxAnswer = MAX_ANSWER_CHARS): string {
   const answer =
     t.assistantText.length > maxAnswer
       ? `${t.assistantText.slice(0, maxAnswer)} [answer shortened here]`

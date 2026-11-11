@@ -14,7 +14,7 @@ export function createEngine(config: Pick<AppConfig, "provider" | "apiKey" | "mo
   switch (provider) {
     case "gemini": {
       const client = new GoogleGenAI({ apiKey });
-      return { provider, model, run: (options) => runGemini({ ...options, client, model }) };
+      return { provider, model, run: (options) => runGemini({ ...options, client, model, effort }) };
     }
     case "anthropic": {
       const client = new Anthropic({ apiKey });
@@ -22,7 +22,7 @@ export function createEngine(config: Pick<AppConfig, "provider" | "apiKey" | "mo
     }
     case "openai": {
       const client = new OpenAI({ apiKey });
-      return { provider, model, run: (options) => runOpenAI({ ...options, client, model }) };
+      return { provider, model, run: (options) => runOpenAI({ ...options, client, model, effort }) };
     }
   }
 }
