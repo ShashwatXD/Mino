@@ -7,32 +7,44 @@
 ## How it works
 
 ```mermaid
-flowchart TD
-    A([Message]) --> G{"Within spend<br/>and rate limits?"}
-    G -- No --> X(["Refused before any model call"])
-    G -- Yes --> B["Build the prompt<br/>time, facts, chat summaries"]
-    B --> M["Answering model, thinking on"]
-    M -- web_search --> W[(Live web)]
-    W --> M
-    M -- "search_history, up to 4 times<br/>dates, topic, grep, whole chat" --> H[(Past chats)]
-    H --> M
-    M --> E([Streamed answer, with sources])
-    E -.-> Z["Small model, in the background<br/>chat summary and title"]
+flowchart LR
+    Q([Message]) --> G{Within budget<br/>and rate limits?}
+    G -- no --> X([Refused, no model call])
+    G -- yes --> C[Context layer]
+    C --> M[Answering model<br/>thinking on]
+    M <--> T[Two tools<br/>web_search · search_history]
+    M --> A([Streamed answer<br/>with sources])
+    A -.-> S[Small model, afterwards<br/>chat summary and title]
 ```
 
-Recall has one path: the model's `search_history` tool. Every prompt carries a light overview of the past, and the model fetches exact turns when it needs them, like `rg` over the chat log. Filters combine: a date range, topic words that survive typos, a grep pattern or regex, or one whole chat by id.
+### The context layer
 
-**What the model sees**
+Memory has two halves. A small overview rides along with every message, and exact past turns are fetched only when the model asks for them.
 
-| Layer | Sent |
-| --- | --- |
-| Time and time zone | Always |
-| Facts the user stated | Always |
-| Summaries of 15 recent chats | Always |
-| This chat: recent turns, older ones summarized | Always |
-| Exact past turns, with sources and dates | When the model calls `search_history` |
+```mermaid
+flowchart LR
+    subgraph always["Always in the prompt: small and capped"]
+        direction TB
+        L1["Current time and time zone"]
+        L2["Facts the user stated<br/>name, city, work, diet"]
+        L3["15 recent chats<br/>one summary each, 700 chars max"]
+        L4["This chat<br/>newest turns up to 30k chars,<br/>older ones as a summary"]
+        L1 --- L2 --- L3 --- L4
+    end
+    subgraph demand["Fetched on demand: search_history"]
+        direction TB
+        D1["By date range"]
+        D2["By topic, typos allowed"]
+        D3["By grep pattern or regex"]
+        D4["Inside one chat, page by page"]
+        D1 --- D2 --- D3 --- D4
+    end
+    always --> M[Answering model]
+    M -- "up to 4 lookups a reply,<br/>8 turns or 12k chars each" --> demand
+    demand -- "exact turns with dates and sources,<br/>or a plain 'nothing on that day'" --> M
+```
 
-The always-on layers follow [ChatGPT's reported design](https://llmrefs.com/blog/reverse-engineering-chatgpt-memory), and summarizing older turns follows [LobeHub](https://github.com/lobehub/lobe-chat). Exact, dated recall is Mino's own, because a summary cannot quote what you asked on some date.
+The overview tells the model what exists. The tool returns what was actually said, with its date, like `rg` over the chat log. Filters combine, and every result says how many turns matched, so the model can widen the search, narrow it, or read the next page. The always-on layers follow [ChatGPT's reported design](https://llmrefs.com/blog/reverse-engineering-chatgpt-memory) and summarizing older turns follows [LobeHub](https://github.com/lobehub/lobe-chat). Exact, dated recall is Mino's own, because a summary cannot quote what you asked on a given day.
 
 **The brief's examples**
 
@@ -55,7 +67,7 @@ The always-on layers follow [ChatGPT's reported design](https://llmrefs.com/blog
 - **A reply belongs to the server, not the tab.** Refresh, switch tabs or lose the network, and the answer resumes without repeating a word.
 - **Spending has hard edges.** Every reply has output, web search, history lookup and time caps. A daily budget stops requests before any model is called.
 
-The code is layered: `http` → `services` → `context` → `memory` · `llm` → `db/repositories`. Each layer imports only those below it. The page's scripts are strict TypeScript too; Node strips their types on request, so there is still no build step. 147 tests cover history search, the tool loop on all three engines, temporary chats, streaming and spending.
+The code is layered: `http` → `services` → `context` → `memory` · `llm` → `db/repositories`. Each layer imports only those below it. The page's scripts are strict TypeScript too; Node strips their types on request, so there is still no build step. 151 tests cover history search, the tool loop on all three engines, temporary chats, traces, streaming and spending. Every reply is traced at `/traces`, and `npm run eval` writes the [eval report](evals/REPORT.md).
 
 ## How it scales
 
