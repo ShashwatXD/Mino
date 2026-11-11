@@ -44,4 +44,5 @@ export interface HistoryQuery {
   from?: string;
   to?: string;
   chatId?: string;
+  page?: number;
 }

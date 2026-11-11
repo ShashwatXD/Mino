@@ -1,7 +1,7 @@
 // Dictation, using the browser's own speech recognition.
 const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const mic = $("mic");
-let listening = null;
+let listening: SpeechRecognitionSession | null = null;
 $("wave").replaceChildren(...Array.from({ length: 120 }, (_, i) => {
   const bar = el("i");
   bar.style.animationDelay = `${-((i * 7) % 11) / 10}s`;
@@ -21,7 +21,7 @@ function endListening() {
 }
 
 function startListening() {
-  const session = new Recognition();
+  const session = new Recognition!();
   const base = input.value.trim();
   session.continuous = true;
   session.interimResults = true;
@@ -52,7 +52,7 @@ if (Recognition) {
 
 // Read aloud, using the browser's own voices.
 const synth = window.speechSynthesis;
-let speaking = null;
+let speaking: HTMLElement | null = null;
 
 function stopSpeaking() {
   if (!speaking) return;
@@ -61,14 +61,14 @@ function stopSpeaking() {
   synth.cancel();
 }
 
-function speak(text, button) {
+function speak(text: string, button: HTMLElement): void {
   if (speaking === button) { stopSpeaking(); return; }
   stopSpeaking();
   speaking = button;
   button.classList.add("on");
   // Long utterances get cut off by some voices, so sentences are queued in short pieces.
-  const pieces = (text.match(/[^.!?\n]+[.!?]*\s*/g) || [text]).reduce((all, sentence) => {
-    if (all.length && all.at(-1).length + sentence.length < 220) all[all.length - 1] += sentence;
+  const pieces = (text.match(/[^.!?\n]+[.!?]*\s*/g) || [text]).reduce<string[]>((all, sentence) => {
+    if (all.length && all[all.length - 1].length + sentence.length < 220) all[all.length - 1] += sentence;
     else all.push(sentence);
     return all;
   }, []);
@@ -81,7 +81,7 @@ function speak(text, button) {
   });
 }
 
-function toolButton(icon, label) {
+function toolButton(icon: string, label: string): HTMLButtonElement {
   const button = el("button", "round");
   button.type = "button";
   button.innerHTML = icon;
@@ -90,7 +90,7 @@ function toolButton(icon, label) {
   return button;
 }
 
-function addAnswerTools(view, text) {
+function addAnswerTools(view: AnswerView, text: string): void {
   const tools = el("div", "answer-tools");
   const copy = toolButton(ICONS.copy, "Copy");
   copy.addEventListener("click", () => {

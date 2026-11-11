@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import { ChatRequestSchema } from "../../config/config.ts";
 import { startChat, type ChatDeps } from "../../services/chat.ts";
+import type { TemporaryChats } from "../../services/temporary-chats.ts";
 import type { RunRegistry } from "../../streaming/runs.ts";
 import { attach } from "../../streaming/sse.ts";
 import { readJson } from "../request.ts";
@@ -9,10 +10,10 @@ import { readJson } from "../request.ts";
 const ThreadSchema = z.object({ threadId: z.string().min(1).max(100) });
 const StreamQuerySchema = ThreadSchema.extend({ after: z.coerce.number().int().min(0).default(0) });
 
-export async function handleChat(req: IncomingMessage, res: ServerResponse, deps: ChatDeps, runs: RunRegistry): Promise<void> {
+export async function handleChat(req: IncomingMessage, res: ServerResponse, deps: ChatDeps, runs: RunRegistry, temporaryChats: TemporaryChats): Promise<void> {
   const request = await readJson(req, res, ChatRequestSchema);
   if (!request) return;
-  const started = startChat(deps, runs, request);
+  const started = startChat(deps, runs, temporaryChats, request);
   if ("status" in started) res.writeHead(started.status).end(started.message);
   else attach(res, started.run, 0);
 }

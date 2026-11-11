@@ -1,3 +1,4 @@
+import type { Effort } from "../config/config.ts";
 import type { HistoryQuery, Source, Turn } from "../domain/turn.ts";
 
 export type AgentEvent =
@@ -29,6 +30,8 @@ export interface TurnOptions {
   emit: (event: AgentEvent) => void;
   signal?: AbortSignal;
   maxSearches?: number;
+  /** Overrides the configured thinking effort for this one reply. */
+  effort?: Effort;
   /** The history tool's implementation. Engines only describe it to the model and pass calls through. */
   searchHistory?: (query: HistoryQuery) => string;
 }

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Traces · Mino</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Instrument+Sans:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body class="scroll">
+<header class="bar">
+  <a class="brand" href="/">Mino</a>
+  <div class="meta"></div>
+  <a class="ghost mono" href="/settings">Settings</a>
+  <a class="ghost mono" href="/">Back to chat</a>
+</header>
+<main class="traces">
+  <h1>Traces</h1>
+  <p class="aside">Every saved reply, step by step: building the prompt, each history lookup and web search, and the model. Temporary chats leave no trace.</p>
+  <div class="trace-summary" id="summary"></div>
+  <div class="trace-table"><table id="list"></table></div>
+  <section class="trace-detail" id="detail" hidden></section>
+</main>
+<script type="module" src="/js/traces.js"></script>
+</body>
+</html>

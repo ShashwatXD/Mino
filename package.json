@@ -10,7 +10,8 @@
     "dev": "tsx watch src/main.ts",
     "start": "tsx src/main.ts",
     "test": "tsx --test test/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "eval": "tsx evals/run.ts",
+    "typecheck": "tsc --noEmit && tsc -p public"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.7.0",

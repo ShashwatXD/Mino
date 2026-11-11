@@ -2,6 +2,7 @@ import { openDatabase } from "../database.ts";
 import { FactRepository } from "./facts.ts";
 import { SummaryRepository } from "./summaries.ts";
 import { ThreadRepository } from "./threads.ts";
+import { TraceRepository } from "./traces.ts";
 import { TurnRepository } from "./turns.ts";
 import { UsageRepository } from "./usage.ts";
 
@@ -11,6 +12,7 @@ export interface Repositories {
   summaries: SummaryRepository;
   facts: FactRepository;
   usage: UsageRepository;
+  traces: TraceRepository;
   close(): void;
 }
 
@@ -23,6 +25,7 @@ export function createRepositories(path: string): Repositories {
     summaries: new SummaryRepository(db),
     facts: new FactRepository(db),
     usage: new UsageRepository(db),
+    traces: new TraceRepository(db),
     close: () => db.close(),
   };
 }

@@ -31,7 +31,7 @@ export const KeySchema = z.preprocess(
 const SettingsSchema = z.object({
   PROVIDER: z.preprocess(blankToUndefined, z.enum(PROVIDERS).optional()),
   MODEL: z.preprocess(blankToUndefined, z.string().optional()),
-  EFFORT: z.preprocess(blankToUndefined, z.enum(EFFORTS).default("medium")),
+  EFFORT: z.preprocess(blankToUndefined, z.enum(EFFORTS).default("low")),
   PORT: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).max(65535).default(3000)),
   DAILY_BUDGET_USD: z.preprocess(blankToUndefined, z.coerce.number().min(0).default(1)),
   MAX_MESSAGES_PER_MINUTE: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).default(10)),
@@ -42,6 +42,8 @@ export const ChatRequestSchema = z.object({
   message: z.string().trim().min(1, "Message is required").max(20000, "Message is too long"),
   threadId: z.string().min(1).max(100).optional(),
   timezone: z.string().max(64).optional(),
+  incognito: z.boolean().optional(),
+  thinkMore: z.boolean().optional(),
 });
 export type ChatRequest = z.infer<typeof ChatRequestSchema>;
 

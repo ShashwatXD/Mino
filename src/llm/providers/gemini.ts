@@ -1,7 +1,7 @@
 import { ThinkingLevel, type Content, type GoogleGenAI, type Part } from "@google/genai";
 import type { Effort } from "../../config/config.ts";
 import type { Source } from "../../domain/turn.ts";
-import { citedFirst, pastPairs } from "../format.ts";
+import { citedFirst, paragraphJoin, pastPairs } from "../format.ts";
 import { EMPTY_TEXT, MAX_OUTPUT_TOKENS, REFUSAL_TEXT, SYSTEM_PROMPT } from "../prompt.ts";
 import { HISTORY_TOOL, MAX_HISTORY_CALLS, runHistoryTool } from "../tools.ts";
 import { type TurnOptions, type TurnResult } from "../types.ts";
@@ -42,9 +42,8 @@ export async function runGemini(options: GeminiOptions): Promise<TurnResult> {
   const config = {
     systemInstruction: SYSTEM_PROMPT,
     tools: [{ googleSearch: {} }, ...(withHistory ? [{ functionDeclarations: [{ name: HISTORY_TOOL.name, description: HISTORY_TOOL.description, parametersJsonSchema: HISTORY_TOOL.parameters }] }] : [])],
-    // Search calls come back as parts, so they can be replayed with the history results in the next round.
     ...(withHistory ? { toolConfig: { includeServerSideToolInvocations: true } } : {}),
-    thinkingConfig: { thinkingLevel: THINKING[options.effort ?? "medium"] },
+    thinkingConfig: { thinkingLevel: THINKING[options.effort ?? "low"] },
     maxOutputTokens: MAX_OUTPUT_TOKENS,
     abortSignal: signal,
   };
@@ -55,6 +54,7 @@ export async function runGemini(options: GeminiOptions): Promise<TurnResult> {
   let stopReason: string | null = null;
   const usage = { model, inputTokens: 0, outputTokens: 0, searches: 0 };
   let historyCalls = 0;
+  let newRound = false;
 
   // One round past the limit lets the model answer after being told to stop searching.
   for (let round = 0; round <= MAX_HISTORY_CALLS + 1; round++) {
@@ -81,8 +81,10 @@ export async function runGemini(options: GeminiOptions): Promise<TurnResult> {
         parts.push(part);
         if (part.functionCall) calls.push(part.functionCall);
         else if (part.text && !part.thought) {
-          text += part.text;
-          emit({ type: "text", text: part.text });
+          const piece = paragraphJoin(text, part.text, newRound);
+          newRound = false;
+          text += piece;
+          emit({ type: "text", text: piece });
         }
       }
 
@@ -111,6 +113,7 @@ export async function runGemini(options: GeminiOptions): Promise<TurnResult> {
     usage.outputTokens += roundUsage.output;
     if (calls.length === 0) break;
 
+    newRound = true;
     // The model's parts go back unchanged, because their thought signatures must match.
     contents.push({ role: "model", parts });
     contents.push({

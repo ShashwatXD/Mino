@@ -50,10 +50,12 @@ The always-on layers follow [ChatGPT's reported design](https://llmrefs.com/blog
 - **Summaries for breadth, exact words for truth.** Summaries keep prompts small. The log remains the source of truth for what was said and what it cost then.
 - **Honest about change.** Unless a source shows a value on both dates, Mino says "no evidence of change", never "unchanged".
 - **Big model answers, small model writes.** Gemini 3.8 Flash, Claude Sonnet 5.5 or GPT-6.1 Terra does the thinking, searching and answering. Flash-Lite, Haiku or GPT-6 Luna only writes summaries and titles, after the reply.
+- **Low thinking by default.** Measured on the brief's questions, medium thinking took 13–34 s to first text and low took 6–9 s with the same lookups. `EFFORT` raises it.
+- **Temporary chats stay out of memory.** They are kept only in the server process, get no history tool, see no facts or summaries, and get no title or summary.
 - **A reply belongs to the server, not the tab.** Refresh, switch tabs or lose the network, and the answer resumes without repeating a word.
 - **Spending has hard edges.** Every reply has output, web search, history lookup and time caps. A daily budget stops requests before any model is called.
 
-The code is layered: `http` → `services` → `context` → `memory` · `llm` → `db/repositories`. Each layer imports only those below it. 137 tests cover history search, the tool loop on all three engines, streaming and spending.
+The code is layered: `http` → `services` → `context` → `memory` · `llm` → `db/repositories`. Each layer imports only those below it. The page's scripts are strict TypeScript too; Node strips their types on request, so there is still no build step. 147 tests cover history search, the tool loop on all three engines, temporary chats, streaming and spending.
 
 ## How it scales
 
@@ -80,7 +82,7 @@ Mino is one user on one process, by design. More users would need a user ID on e
 
 ## With another week
 
-1. Build an eval set and cut latency. On Gemini 3.8 Flash, a re-check like the brief's Postgres question (one history lookup, three web searches) takes 11–15 s to first token.
+1. Cut latency further. On Gemini 3.8 Flash, re-checking old prices (one history lookup, then web searches) takes 7–9 s to first text, and a plain history question about 4 s.
 2. Make web search stateful, so a follow-up continues earlier searches.
 3. Snapshot pricing pages, so "unchanged" can be proven.
 4. Add embeddings for the same idea in different words.

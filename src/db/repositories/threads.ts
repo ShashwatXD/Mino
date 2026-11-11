@@ -60,12 +60,12 @@ export class ThreadRepository {
       .run(threadId, title, threadId);
   }
 
-  /** Removes a chat for good, including its search index, title and summary, so recall cannot surface it again. */
+  /** Removes a chat for good, including its search index, title, summary and traces, so nothing of it remains. */
   delete(threadId: string): void {
     this.db.exec("BEGIN");
     try {
       this.db.prepare(`DELETE FROM turns_tri WHERE rowid IN (SELECT id FROM turns WHERE thread_id = ?)`).run(threadId);
-      for (const table of ["turns", "chat_summaries", "chat_titles", "pinned_threads"]) {
+      for (const table of ["turns", "chat_summaries", "chat_titles", "pinned_threads", "traces"]) {
         this.db.prepare(`DELETE FROM ${table} WHERE thread_id = ?`).run(threadId);
       }
       this.db.exec("COMMIT");

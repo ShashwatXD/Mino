@@ -124,7 +124,7 @@ for (const [name, make] of Object.entries(engines)) {
     const searched: HistoryQuery[] = [];
     const result = await engine.run(options(searched));
     assert.equal(result.text, "On 3 Nov you asked for a pizza dough recipe.");
-    assert.deepEqual(searched, [{ query: undefined, pattern: undefined, from: "2026-11-03", to: "2026-11-03", chatId: undefined }]);
+    assert.deepEqual(searched, [{ query: undefined, pattern: undefined, from: "2026-11-03", to: "2026-11-03", chatId: undefined, page: undefined }]);
     assert.equal(engine.requests.length, 2);
     assert.match(JSON.stringify(engine.requests[0]), /search_history/);
     const second = JSON.stringify(engine.requests[1]);
@@ -148,3 +148,9 @@ for (const [name, make] of Object.entries(engines)) {
     assert.doesNotMatch(JSON.stringify(engine.requests[0]), /search_history"/);
   });
 }
+
+test("a per-message effort reaches Gemini's thinking level", async () => {
+  const engine = engines.gemini();
+  await engine.run({ ...options([]), searchHistory: undefined, effort: "high" });
+  assert.equal(engine.requests[0].config.thinkingConfig.thinkingLevel, "HIGH");
+});

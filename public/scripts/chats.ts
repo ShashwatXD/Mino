@@ -1,19 +1,21 @@
-function setChatsOpen(open) {
+interface ChatListItem { threadId: string; title: string; updatedAt: number; pinned: boolean }
+
+function setChatsOpen(open: boolean): void {
   document.body.classList.toggle("chats-open", open);
   try { localStorage.setItem("chatsOpen", open ? "1" : "0"); } catch {}
 }
 
 function markActiveChat() {
-  for (const row of $("chat-list").querySelectorAll(".chat-row")) {
+  for (const row of $("chat-list").querySelectorAll<HTMLElement>(".chat-row")) {
     row.classList.toggle("active", row.dataset.id === threadId);
   }
 }
 
-async function togglePin(chat) {
+async function togglePin(chat: ChatListItem): Promise<void> {
   try { await api("PATCH", "/api/thread", { threadId: chat.threadId, pinned: !chat.pinned }); } catch {}
   channel?.postMessage({ chats: true });
   await refreshChats();
-  $("chat-list").querySelector(`[data-id="${CSS.escape(chat.threadId)}"] .pin`)?.focus();
+  $("chat-list").querySelector<HTMLElement>(`[data-id="${CSS.escape(chat.threadId)}"] .pin`)?.focus();
 }
 
 function leaveDeletedChat() {
@@ -21,7 +23,7 @@ function leaveDeletedChat() {
   goHome();
 }
 
-async function deleteChat(id) {
+async function deleteChat(id: string): Promise<void> {
   await api("DELETE", "/api/thread", { threadId: id });
   channel?.postMessage({ threadId: id, deleted: true });
   if (id === threadId) {
@@ -32,8 +34,8 @@ async function deleteChat(id) {
 }
 
 // Deleting is permanent, so the row asks first. Only one row can be asking at a time.
-let closeConfirm = null;
-function askDelete(chat, row, trigger) {
+let closeConfirm: (() => void) | null = null;
+function askDelete(chat: ChatListItem, row: HTMLElement, trigger: HTMLElement): void {
   closeConfirm?.();
   const original = [...row.children];
   const box = el("div", "chat-confirm");
@@ -60,7 +62,7 @@ function askDelete(chat, row, trigger) {
   cancel.focus();
 }
 
-function chatRow(chat) {
+function chatRow(chat: ChatListItem): HTMLElement {
   const row = el("div", "chat-row");
   row.dataset.id = chat.threadId;
   const item = el("button", "chat-item", chat.title);
@@ -87,7 +89,7 @@ function chatRow(chat) {
 let chatsGen = 0;
 async function refreshChats() {
   const gen = ++chatsGen;
-  let chats = [];
+  let chats: ChatListItem[] = [];
   try { chats = await (await fetch("/api/threads")).json(); } catch { return; }
   // A slower, older response must not bring back a chat that was just deleted.
   if (gen !== chatsGen) return;
@@ -95,7 +97,7 @@ async function refreshChats() {
   const list = $("chat-list");
   list.replaceChildren();
   if (!chats.length) { list.append(el("div", "chats-empty", "Your chats will appear here")); return; }
-  let section = null;
+  let section: string | null = null;
   for (const chat of chats) {
     const label = chat.pinned ? "Pinned" : dayLabel(chat.updatedAt);
     if (label !== section) { section = label; list.append(el("div", "mono chats-day", label)); }

@@ -1,7 +1,7 @@
-let statusWarnings = [];
+let statusWarnings: string[] = [];
 
-let settingsData = null;
-async function api(method, path, body) {
+let settingsData: SettingsSnapshot | null = null;
+async function api<T = SettingsSnapshot>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method,
     headers: { "Content-Type": "application/json" },
@@ -12,16 +12,16 @@ async function api(method, path, body) {
   return data;
 }
 
-function fillModels(select, withManage) {
+function fillModels(select: HTMLSelectElement, withManage: boolean, data: SettingsSnapshot): void {
   select.replaceChildren();
-  for (const provider of settingsData.providers) {
+  for (const provider of data.providers) {
     if (!provider.configured) continue;
     const group = document.createElement("optgroup");
     group.label = provider.label;
     for (const model of provider.models) {
       const option = el("option", "", model);
       option.value = provider.id + "|" + model;
-      option.selected = provider.id === settingsData.provider && model === settingsData.model;
+      option.selected = provider.id === data.provider && model === data.model;
       group.append(option);
     }
     select.append(group);
@@ -34,7 +34,7 @@ function fillModels(select, withManage) {
 }
 
 /** A native select is as wide as its longest option, so it is sized to the chosen one instead. */
-function fitSelect(select) {
+function fitSelect(select: HTMLSelectElement): void {
   const probe = el("span", select.className, select.options[select.selectedIndex]?.text ?? "");
   probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre;padding:0;margin:0;background:none";
   document.body.append(probe);
@@ -42,7 +42,7 @@ function fitSelect(select) {
   probe.remove();
 }
 
-function applySettings(data) {
+function applySettings(data: SettingsSnapshot): void {
   const was = configured;
   settingsData = data;
   configured = data.configured;
@@ -50,18 +50,19 @@ function applySettings(data) {
   input.disabled = !configured;
   input.placeholder = configured ? "Ask anything" : "Add an API key to start chatting";
   $("model").hidden = !configured;
-  if (configured) { fillModels($("model"), true); fitSelect($("model")); }
+  const select = $<HTMLSelectElement>("model");
+  if (configured) { fillModels(select, true, data); fitSelect(select); }
   setBusy(Boolean(active));
   updateComposer();
   if (was !== configured && messages.querySelector(".hero")) showEmpty();
 }
 
-async function chooseModel(value) {
+async function chooseModel(value: string): Promise<void> {
   const at = value.indexOf("|");
   try {
     applySettings(await api("POST", "/api/settings/model", { provider: value.slice(0, at), model: value.slice(at + 1) }));
   } catch {
-    applySettings(settingsData);
+    if (settingsData) applySettings(settingsData);
   }
 }
 
@@ -69,7 +70,8 @@ async function refreshModels() {
   try { applySettings(await api("GET", "/api/settings?refresh=1")); } catch {}
 }
 
-$("model").addEventListener("change", (e) => {
-  if (e.target.value === "manage") { location.href = "/settings"; return; }
-  chooseModel(e.target.value);
+$<HTMLSelectElement>("model").addEventListener("change", (e) => {
+  const value = (e.target as HTMLSelectElement).value;
+  if (value === "manage") { location.href = "/settings"; return; }
+  chooseModel(value);
 });

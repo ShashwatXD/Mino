@@ -23,6 +23,14 @@ const toTurn = (r: Row): Turn => ({
   status: r.status as TurnStatus,
 });
 
+export interface TurnFilter {
+  threadId?: string;
+  start?: number;
+  end?: number;
+  /** A regex source, matched case-insensitively against the question and the answer. */
+  pattern?: string;
+}
+
 /** Log of what was asked, answered and read, each stamped with when. Turns only leave it when the user deletes their chat. */
 export class TurnRepository {
   constructor(private db: DatabaseSync) {}
@@ -101,6 +109,22 @@ export class TurnRepository {
       )
       .all(match, limit) as Row[];
     return rows.map(toTurn);
+  }
+
+  /** Settled turns matching every given filter, with the total so callers can page. */
+  find(filter: TurnFilter, order: "asc" | "desc", limit: number, offset = 0): { turns: Turn[]; total: number } {
+    const where = ["status != 'streaming'"];
+    const args: (string | number)[] = [];
+    if (filter.threadId) where.push("thread_id = ?"), args.push(filter.threadId);
+    if (filter.start !== undefined) where.push("created_at >= ?"), args.push(filter.start);
+    if (filter.end !== undefined) where.push("created_at < ?"), args.push(filter.end);
+    if (filter.pattern) where.push("(regexp(?, user_text) OR regexp(?, assistant_text))"), args.push(filter.pattern, filter.pattern);
+    const clause = where.join(" AND ");
+    const total = (this.db.prepare(`SELECT COUNT(*) AS n FROM turns WHERE ${clause}`).get(...args) as { n: number }).n;
+    const rows = this.db
+      .prepare(`SELECT * FROM turns WHERE ${clause} ORDER BY created_at ${order === "asc" ? "ASC" : "DESC"}, id LIMIT ? OFFSET ?`)
+      .all(...args, limit, offset) as Row[];
+    return { turns: rows.map(toTurn), total };
   }
 
   after(threadId: string, afterId: number, limit: number): Turn[] {

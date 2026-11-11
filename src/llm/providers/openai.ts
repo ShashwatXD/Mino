@@ -3,7 +3,7 @@ import type { ResponseInput } from "openai/resources/responses/responses";
 import type { Effort } from "../../config/config.ts";
 import type { Source } from "../../domain/turn.ts";
 import { EMPTY_TEXT, MAX_OUTPUT_TOKENS, MAX_SEARCHES, SYSTEM_PROMPT } from "../prompt.ts";
-import { citedFirst, pastPairs } from "../format.ts";
+import { citedFirst, paragraphJoin, pastPairs } from "../format.ts";
 import { HISTORY_TOOL, MAX_HISTORY_CALLS, runHistoryTool } from "../tools.ts";
 import { type TurnOptions, type TurnResult } from "../types.ts";
 
@@ -41,6 +41,7 @@ export async function runOpenAI(options: OpenAIOptions): Promise<TurnResult> {
   let stopReason: string | null = null;
   const usage = { model, inputTokens: 0, outputTokens: 0, searches: 0 };
   let historyCalls = 0;
+  let newRound = false;
 
   // One round past the limit lets the model answer after being told to stop searching.
   for (let round = 0; round <= MAX_HISTORY_CALLS + 1; round++) {
@@ -50,7 +51,7 @@ export async function runOpenAI(options: OpenAIOptions): Promise<TurnResult> {
         instructions: SYSTEM_PROMPT,
         input,
         tools,
-        reasoning: { effort: REASONING[options.effort ?? "medium"] },
+        reasoning: { effort: REASONING[options.effort ?? "low"] },
         max_output_tokens: MAX_OUTPUT_TOKENS,
         max_tool_calls: options.maxSearches ?? MAX_SEARCHES,
       } as never,
@@ -62,8 +63,10 @@ export async function runOpenAI(options: OpenAIOptions): Promise<TurnResult> {
       switch (event.type) {
         case "response.output_text.delta":
         case "response.refusal.delta":
-          text += event.delta;
-          emit({ type: "text", text: event.delta });
+          const piece = paragraphJoin(text, event.delta, newRound);
+          newRound = false;
+          text += piece;
+          emit({ type: "text", text: piece });
           break;
         case "response.web_search_call.searching":
           emit({ type: "status", text: "Searching the web" });
@@ -102,6 +105,7 @@ export async function runOpenAI(options: OpenAIOptions): Promise<TurnResult> {
     const calls = output.filter((item) => item.type === "function_call" && item.name === HISTORY_TOOL.name);
     if (calls.length === 0) break;
     // Output items, reasoning included, go back unchanged so the model continues its own chain.
+    newRound = true;
     input.push(...output);
     for (const call of calls) input.push({ type: "function_call_output", call_id: call.call_id, output: runHistoryTool(options, call.arguments, historyCalls++) } as never);
   }

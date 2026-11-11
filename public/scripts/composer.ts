@@ -1,4 +1,4 @@
-const svg = (body) => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+const svg = (body: string) => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 const ICONS = {
   send: svg('<path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/>'),
   stop: svg('<rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor"/>'),
@@ -10,8 +10,8 @@ const ICONS = {
   trash: svg('<path d="M4 7h16M9 7V4.5A1.5 1.5 0 0 1 10.5 3h3A1.5 1.5 0 0 1 15 4.5V7M6 7l1 12.5A1.5 1.5 0 0 0 8.5 21h7a1.5 1.5 0 0 0 1.5-1.5L18 7"/>'),
 };
 
-let busyShown = null;
-function setBusy(busy) {
+let busyShown: boolean | null = null;
+function setBusy(busy: boolean): void {
   if (busy !== busyShown) {
     busyShown = busy;
     send.innerHTML = busy ? ICONS.stop : ICONS.send;

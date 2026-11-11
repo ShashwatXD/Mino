@@ -90,7 +90,26 @@ test("a chat id returns that whole chat in order", () => {
   const result = search(store, { chatId: "chat-1" });
   assert.ok(result.indexOf("First question") < result.indexOf("Follow-up question"));
   assert.doesNotMatch(result, /Unrelated/);
-  assert.match(search(store, { chatId: "missing" }), /No chat has the id missing/);
+  assert.match(search(store, { chatId: "missing" }), /^No past conversations found in chat missing/);
+});
+
+test("a long chat can be paged through, and searched inside", () => {
+  const store = createRepositories(":memory:");
+  for (let i = 0; i < 300; i++) add(store, NOW - 3 * DAY + i * 60_000, i === 0 ? "Kickoff: codename BLUEFIN" : i === 150 ? "Rate limit?" : `Task ${i}`, i === 150 ? "600 requests per minute" : "done", "long");
+  const first = search(store, { chatId: "long" });
+  assert.match(first, /^Turns 1–8 of 300 in chat long/);
+  assert.match(first, /BLUEFIN/);
+  assert.match(search(store, { chatId: "long", page: 19 }), /Turns 145–152 of 300/);
+  assert.match(search(store, { chatId: "long", pattern: "requests per" }), /600 requests per minute/);
+  assert.match(search(store, { chatId: "long", page: 99 }), /past the end/);
+});
+
+test("grep and topic search reach the oldest turn among thousands", () => {
+  const store = createRepositories(":memory:");
+  add(store, NOW - 30 * DAY, "Our Stripe webhook secret rotates every 30 days", "Noted.");
+  for (let i = 0; i < 6000; i++) add(store, NOW - 20 * DAY + i * 60_000, `Review pull request ${i}`, "Done.", `c${i % 300}`);
+  assert.match(search(store, { pattern: "webhook secret" }), /rotates every 30 days/);
+  assert.match(search(store, { query: "stripe webhook" }), /rotates every 30 days/);
 });
 
 test("results stay within budget however long the chats are", () => {
@@ -99,7 +118,7 @@ test("results stay within budget however long the chats are", () => {
   const result = search(store, { query: "budgets" });
   assert.ok(result.length < 20_000, `${result.length} chars`);
   assert.match(result, /answer shortened here/);
-  assert.match(result, /narrow the search/);
+  assert.match(result, /More remain: ask for page 2/);
 });
 
 test("search stays fast with 5,000 chats", () => {

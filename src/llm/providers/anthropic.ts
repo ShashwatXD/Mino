@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { Effort } from "../../config/config.ts";
 import type { Source, Turn } from "../../domain/turn.ts";
 import { EMPTY_TEXT, MAX_OUTPUT_TOKENS, MAX_SEARCHES, REFUSAL_TEXT, SYSTEM_PROMPT } from "../prompt.ts";
-import { citedFirst, pastPairs } from "../format.ts";
+import { citedFirst, paragraphJoin, pastPairs } from "../format.ts";
 import { HISTORY_TOOL, MAX_HISTORY_CALLS, runHistoryTool } from "../tools.ts";
 import { type TurnOptions, type TurnResult } from "../types.ts";
 
@@ -53,6 +53,7 @@ export async function runTurn(options: AnthropicOptions): Promise<TurnResult> {
     ...(options.searchHistory ? [{ name: HISTORY_TOOL.name, description: HISTORY_TOOL.description, input_schema: HISTORY_TOOL.parameters }] : []),
   ];
   let historyCalls = 0;
+  let newRound = false;
   let pauses = 0;
   let lookups = 0;
 
@@ -94,8 +95,10 @@ export async function runTurn(options: AnthropicOptions): Promise<TurnResult> {
       } else if (event.type === "content_block_delta") {
         const delta = event.delta;
         if (delta.type === "text_delta") {
-          text += delta.text;
-          emit({ type: "text", text: delta.text });
+          const piece = paragraphJoin(text, delta.text, newRound);
+          newRound = false;
+          text += piece;
+          emit({ type: "text", text: piece });
         } else if (delta.type === "input_json_delta" && toolInputs.has(event.index)) {
           toolInputs.set(event.index, toolInputs.get(event.index) + delta.partial_json);
         } else if (delta.type === "citations_delta" && delta.citation?.url) {
@@ -133,6 +136,7 @@ export async function runTurn(options: AnthropicOptions): Promise<TurnResult> {
     const calls = (message.content as any[]).filter((b) => b.type === "tool_use");
     // One round past the limit lets the model answer after being told to stop searching.
     if (stopReason !== "tool_use" || calls.length === 0 || ++lookups > MAX_HISTORY_CALLS + 1) break;
+    newRound = true;
     messages.push({ role: "assistant", content: message.content as never });
     messages.push({
       role: "user",

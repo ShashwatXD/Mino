@@ -14,15 +14,15 @@ export function createEngine(config: Pick<AppConfig, "provider" | "apiKey" | "mo
   switch (provider) {
     case "gemini": {
       const client = new GoogleGenAI({ apiKey });
-      return { provider, model, run: (options) => runGemini({ ...options, client, model, effort }) };
+      return { provider, model, run: (options) => runGemini({ ...options, client, model, effort: options.effort ?? effort }) };
     }
     case "anthropic": {
       const client = new Anthropic({ apiKey });
-      return { provider, model, run: (options) => runTurn({ ...options, client, model, effort }) };
+      return { provider, model, run: (options) => runTurn({ ...options, client, model, effort: options.effort ?? effort }) };
     }
     case "openai": {
       const client = new OpenAI({ apiKey });
-      return { provider, model, run: (options) => runOpenAI({ ...options, client, model, effort }) };
+      return { provider, model, run: (options) => runOpenAI({ ...options, client, model, effort: options.effort ?? effort }) };
     }
   }
 }
