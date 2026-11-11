@@ -38,7 +38,7 @@ test("history search finds a topic despite a typo", () => {
 
 test("history search says plainly when nothing is on record", () => {
   const result = searchHistory(seeded().turns, { query: "postgres", from: "2026-11-02", to: "2026-11-02" }, TZ);
-  assert.match(result, /^No past conversations found on Mon, 2 Nov 2026 about "postgres"/);
+  assert.match(result, /^No past conversations found on Mon, 2 Nov 2026, about "postgres"/);
 });
 
 test("history search rejects an impossible range instead of guessing", () => {
@@ -124,7 +124,7 @@ for (const [name, make] of Object.entries(engines)) {
     const searched: HistoryQuery[] = [];
     const result = await engine.run(options(searched));
     assert.equal(result.text, "On 3 Nov you asked for a pizza dough recipe.");
-    assert.deepEqual(searched, [{ query: undefined, from: "2026-11-03", to: "2026-11-03" }]);
+    assert.deepEqual(searched, [{ query: undefined, pattern: undefined, from: "2026-11-03", to: "2026-11-03", chatId: undefined }]);
     assert.equal(engine.requests.length, 2);
     assert.match(JSON.stringify(engine.requests[0]), /search_history/);
     const second = JSON.stringify(engine.requests[1]);

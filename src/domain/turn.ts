@@ -40,6 +40,8 @@ export interface Turn {
 
 export interface HistoryQuery {
   query?: string;
+  pattern?: string;
   from?: string;
   to?: string;
+  chatId?: string;
 }

@@ -105,7 +105,6 @@ function reply(deps: ChatDeps, runs: RunRegistry, run: Run, turnId: number, inpu
         tz,
         threadId: run.threadId,
         history,
-        excludeIds: new Set([...history.map((t) => t.id), turnId]),
       });
       context = built.context;
       run.abort.signal.throwIfAborted();
