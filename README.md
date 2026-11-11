@@ -6,7 +6,7 @@ A chat agent with web search that remembers what it told you and when, then chec
 
 ## Demo
 
-[Watch the one-minute demo](docs/demo.mp4)
+https://github.com/user-attachments/assets/ccafa39c-d4a6-4872-b999-7e981e12e7aa
 
 ## Run
 
