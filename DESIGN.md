@@ -59,7 +59,7 @@ The overview tells the model what exists. The tool returns what was actually sai
 - **The tool says what it found.** That day, nothing that day but strong matches on other dates, or nothing at all. The model gets that sentence, not a guess.
 - **A strong match or nothing.** A chat from another day is offered only when its topic clearly matches, never on one shared word like "pricing".
 - **Summaries for breadth, exact words for truth.** Summaries keep prompts small. The log remains the source of truth for what was said and what it cost then.
-- **Honest about change.** Unless a source shows a value on both dates, Mino says "no evidence of change", never "unchanged".
+- **Honest about change.** Mino says "unchanged (checked today)" only when a source it found today shows the same value as the record. If it could not confirm today's value, it says "no evidence of change".
 - **Big model answers, small model writes.** Gemini 3.8 Flash, Claude Sonnet 5.5 or GPT-6.1 Terra does the thinking, searching and answering. Flash-Lite, Haiku or GPT-6 Luna only writes summaries and titles, after the reply.
 - **Low thinking by default.** Measured on the brief's questions, medium thinking took 13–34 s to first text and low took 6–9 s with the same lookups. `EFFORT` raises it.
 - **Temporary chats stay out of memory.** They are kept only in the server process, get no history tool, see no facts or summaries, and get no title or summary.
