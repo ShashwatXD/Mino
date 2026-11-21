@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../src/config/config.ts";
+import { setGuardrails } from "../src/config/guardrails.ts";
 import { createRepositories } from "../src/db/repositories/index.ts";
 import type { Trace } from "../src/domain/trace.ts";
 import { createApp } from "../src/http/app.ts";
@@ -18,6 +19,7 @@ if (existsSync(join(ROOT, ".env"))) process.loadEnvFile(join(ROOT, ".env"));
 process.env.DAILY_BUDGET_USD ??= "5";
 const dir = mkdtempSync(join(tmpdir(), "mino-eval-"));
 const config = loadConfig(process.env);
+setGuardrails(config.guardrails);
 const settings = new SettingsManager(join(dir, "settings.json"), config);
 const active = settings.active();
 if (!active) {

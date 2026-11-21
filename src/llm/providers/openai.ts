@@ -2,10 +2,11 @@ import type OpenAI from "openai";
 import type { ResponseInput } from "openai/resources/responses/responses";
 import type { Effort } from "../../config/config.ts";
 import type { Source } from "../../domain/turn.ts";
-import { EMPTY_TEXT, MAX_OUTPUT_TOKENS, MAX_SEARCHES, SYSTEM_PROMPT } from "../prompt.ts";
+import { GUARD } from "../../config/guardrails.ts";
+import { EMPTY_TEXT, SYSTEM_PROMPT } from "../prompt.ts";
 import { errorText, readableMessages, readableTools, snapshot } from "../call-record.ts";
 import { citedFirst, paragraphJoin, pastPairs } from "../format.ts";
-import { type CallCounter, functionTools, MAX_HISTORY_CALLS, runFunctionCall } from "../tools.ts";
+import { type CallCounter, functionTools, runFunctionCall } from "../tools.ts";
 import { type TurnOptions, type TurnResult } from "../types.ts";
 
 interface OpenAIOptions extends TurnOptions {
@@ -44,16 +45,15 @@ export async function runOpenAI(options: OpenAIOptions): Promise<TurnResult> {
   const count: CallCounter = { history: 0, external: 0 };
   let newRound = false;
 
-  // One round past the limit lets the model answer after being told to stop searching.
-  for (let round = 0; round <= MAX_HISTORY_CALLS + 1; round++) {
+  for (let round = 0; round < GUARD.maxRounds; round++) {
     const params = {
       model,
       instructions: SYSTEM_PROMPT,
       input,
       tools,
       reasoning: { effort: REASONING[options.effort ?? "low"] },
-      max_output_tokens: MAX_OUTPUT_TOKENS,
-      max_tool_calls: options.maxSearches ?? MAX_SEARCHES,
+      max_output_tokens: GUARD.maxOutputTokens,
+      max_tool_calls: options.maxSearches ?? GUARD.maxWebSearches,
     };
     const sentAt = performance.now();
     const sent = options.onLlmCall ? snapshot(params) : null;

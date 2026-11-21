@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { type Guardrails, readGuardrails } from "./guardrails.ts";
 
 export const PROVIDERS = ["gemini", "anthropic", "openai"] as const;
 export type Provider = (typeof PROVIDERS)[number];
@@ -33,9 +34,6 @@ const SettingsSchema = z.object({
   MODEL: z.preprocess(blankToUndefined, z.string().optional()),
   EFFORT: z.preprocess(blankToUndefined, z.enum(EFFORTS).default("low")),
   PORT: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).max(65535).default(3000)),
-  DAILY_BUDGET_USD: z.preprocess(blankToUndefined, z.coerce.number().min(0).default(1)),
-  MAX_MESSAGES_PER_MINUTE: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).default(10)),
-  MAX_MESSAGES_PER_DAY: z.preprocess(blankToUndefined, z.coerce.number().int().min(1).default(200)),
 });
 
 export const ChatRequestSchema = z.object({
@@ -86,16 +84,17 @@ export interface AppConfig {
   available: Provider[];
   warnings: string[];
   limits: Limits;
+  /** Every limit, from src/config/guardrails.ts with any .env overrides. main.ts makes these the live values. */
+  guardrails: Guardrails;
 }
 
 export class ConfigError extends Error {}
 
 export function loadConfig(env: Record<string, string | undefined>): AppConfig {
   const parsed = SettingsSchema.safeParse(env);
-  if (!parsed.success) {
-    const problems = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
-    throw new ConfigError(`Invalid settings in .env. ${problems}`);
-  }
+  const guard = readGuardrails(env);
+  const problems = [...(parsed.success ? [] : parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`)), ...guard.problems];
+  if (!parsed.success || problems.length) throw new ConfigError(`Invalid settings in .env. ${problems.join("; ")}`);
   const settings = parsed.data;
   const warnings: string[] = [];
   const keys = new Map<Provider, string>();
@@ -142,10 +141,11 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
     available,
     warnings,
     limits: {
-      dailyBudgetUsd: settings.DAILY_BUDGET_USD,
-      maxPerMinute: settings.MAX_MESSAGES_PER_MINUTE,
-      maxPerDay: settings.MAX_MESSAGES_PER_DAY,
-      maxConcurrent: 2,
+      dailyBudgetUsd: guard.values.dailyBudgetUsd,
+      maxPerMinute: guard.values.maxPerMinute,
+      maxPerDay: guard.values.maxPerDay,
+      maxConcurrent: guard.values.maxConcurrent,
     },
+    guardrails: guard.values,
   };
 }

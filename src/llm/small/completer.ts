@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenAI } from "@google/genai";
 import OpenAI from "openai";
 import type { Provider } from "../../config/config.ts";
+import { GUARD } from "../../config/guardrails.ts";
 import { errorText, type LlmCallRecord, snapshot } from "../call-record.ts";
 import type { Usage } from "../types.ts";
 
@@ -12,8 +13,6 @@ export interface Completion {
   /** The full request and response, for the traces page. */
   record?: LlmCallRecord;
 }
-
-const MAX_TOKENS = 1024;
 
 type Complete = (system: string, prompt: string, signal: AbortSignal) => Promise<Completion>;
 
@@ -28,7 +27,7 @@ export function completer(provider: Provider, apiKey: string, model: string, pur
       provider,
       model,
       startedAt: sentAt,
-      request: { system, messages: [{ role: "user", content: prompt }], tools: [], settings: { maxOutputTokens: MAX_TOKENS } },
+      request: { system, messages: [{ role: "user", content: prompt }], tools: [], settings: { maxOutputTokens: GUARD.smallModelMaxTokens } },
     };
     try {
       const { text, usage, request, response } = await call(system, prompt, signal);
@@ -65,7 +64,7 @@ function providerCall(provider: Provider, apiKey: string, model: string): Call {
         contents: prompt,
         config: {
           systemInstruction: system,
-          maxOutputTokens: MAX_TOKENS,
+          maxOutputTokens: GUARD.smallModelMaxTokens,
           abortSignal: signal,
         },
       };
@@ -84,7 +83,7 @@ function providerCall(provider: Provider, apiKey: string, model: string): Call {
     return async (system, prompt, signal) => {
       const request = {
         model,
-        max_tokens: MAX_TOKENS,
+        max_tokens: GUARD.smallModelMaxTokens,
         system,
         output_config: { effort: "low" as const },
         messages: [{ role: "user" as const, content: prompt }],
@@ -105,7 +104,7 @@ function providerCall(provider: Provider, apiKey: string, model: string): Call {
       model,
       instructions: system,
       input: prompt,
-      max_output_tokens: MAX_TOKENS,
+      max_output_tokens: GUARD.smallModelMaxTokens,
     };
     const response = await client.responses.create(request, { signal });
     return {

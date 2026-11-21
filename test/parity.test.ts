@@ -3,7 +3,8 @@ import { test } from "node:test";
 import { runTurn } from "../src/llm/providers/anthropic.ts";
 import { runGemini } from "../src/llm/providers/gemini.ts";
 import { runOpenAI } from "../src/llm/providers/openai.ts";
-import { EMPTY_TEXT, MAX_OUTPUT_TOKENS } from "../src/llm/prompt.ts";
+import { GUARD } from "../src/config/guardrails.ts";
+import { EMPTY_TEXT } from "../src/llm/prompt.ts";
 import { type AgentEvent, type TurnOptions } from "../src/llm/types.ts";
 
 const URL = "https://neon.tech/pricing";
@@ -187,7 +188,7 @@ for (const engine of engines) {
     const stop = new AbortController();
     const { seen, result } = engine.run(options({ signal: stop.signal }), { text: "ok" });
     await result;
-    assert.equal(engine.outputCap(seen), MAX_OUTPUT_TOKENS);
+    assert.equal(engine.outputCap(seen), GUARD.maxOutputTokens);
     assert.equal(engine.signal(seen), stop.signal);
   });
 

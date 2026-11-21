@@ -1,9 +1,9 @@
+import { GUARD } from "../config/guardrails.ts";
 import type { Turn } from "../domain/turn.ts";
 
-const HISTORY_BUDGET_CHARS = 30_000;
 
 /** Keeps the newest turns that fit. Older ones are not lost, because search can still reach them. */
-export function fitHistory(turns: Turn[], budget = HISTORY_BUDGET_CHARS): Turn[] {
+export function fitHistory(turns: Turn[], budget = GUARD.historyChars): Turn[] {
   const kept: Turn[] = [];
   let used = 0;
   for (const turn of [...turns].reverse()) {

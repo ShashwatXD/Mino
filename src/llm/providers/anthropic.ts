@@ -1,10 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Effort } from "../../config/config.ts";
 import type { Source, Turn } from "../../domain/turn.ts";
-import { EMPTY_TEXT, MAX_OUTPUT_TOKENS, MAX_SEARCHES, REFUSAL_TEXT, SYSTEM_PROMPT } from "../prompt.ts";
+import { GUARD } from "../../config/guardrails.ts";
+import { EMPTY_TEXT, REFUSAL_TEXT, SYSTEM_PROMPT } from "../prompt.ts";
 import { errorText, readableMessages, readableTools, snapshot } from "../call-record.ts";
 import { citedFirst, paragraphJoin, pastPairs } from "../format.ts";
-import { type CallCounter, functionTools, MAX_HISTORY_CALLS, runFunctionCall } from "../tools.ts";
+import { type CallCounter, functionTools, runFunctionCall } from "../tools.ts";
 import { type TurnOptions, type TurnResult } from "../types.ts";
 
 type MessageParam = Anthropic.Beta.Messages.BetaMessageParam;
@@ -14,8 +15,6 @@ interface AnthropicOptions extends TurnOptions {
   model: string;
   effort: Effort;
 }
-
-const MAX_CONTINUATIONS = 2;
 
 /** Replays plain text only, so history stays a stable, cacheable, append-only prefix. */
 function historyMessages(history: Turn[], tz: string): MessageParam[] {
@@ -50,7 +49,7 @@ export async function runTurn(options: AnthropicOptions): Promise<TurnResult> {
   let stopReason: string | null = null;
   const usage = { model, inputTokens: 0, outputTokens: 0, searches: 0 };
   const tools = [
-    { type: "web_search_20260209", name: "web_search", max_uses: options.maxSearches ?? MAX_SEARCHES },
+    { type: "web_search_20260209", name: "web_search", max_uses: options.maxSearches ?? GUARD.maxWebSearches },
     ...functionTools(options).map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters })),
   ];
   const count: CallCounter = { history: 0, external: 0 };
@@ -62,7 +61,7 @@ export async function runTurn(options: AnthropicOptions): Promise<TurnResult> {
   for (let round = 1; ; round++) {
     const params = {
       model,
-      max_tokens: MAX_OUTPUT_TOKENS,
+      max_tokens: GUARD.maxOutputTokens,
       betas: ["server-side-fallback-2026-07-01"],
       fallbacks: "default",
       thinking: { type: "adaptive" },
@@ -90,7 +89,7 @@ export async function runTurn(options: AnthropicOptions): Promise<TurnResult> {
           system: SYSTEM_PROMPT,
           messages: readableMessages((sent as { messages: unknown[] }).messages),
           tools: readableTools(tools),
-          settings: { max_tokens: MAX_OUTPUT_TOKENS, thinking: "adaptive", effort },
+          settings: { max_tokens: params.max_tokens, thinking: "adaptive", effort },
         },
         response: {
           text: roundText,
@@ -176,14 +175,14 @@ export async function runTurn(options: AnthropicOptions): Promise<TurnResult> {
     usage.searches += reported?.server_tool_use?.web_search_requests ?? 0;
     // The full content goes back unchanged, so thinking blocks stay valid.
     if (stopReason === "pause_turn") {
-      if (++pauses > MAX_CONTINUATIONS) break;
+      if (++pauses > GUARD.maxServerPauses) break;
       // The server resumes from the trailing server_tool_use block; no extra user message is added.
       messages.push({ role: "assistant", content: message.content as never });
       continue;
     }
     const calls = (message.content as any[]).filter((b) => b.type === "tool_use");
-    // One round past the limit lets the model answer after being told to stop searching.
-    if (stopReason !== "tool_use" || calls.length === 0 || ++lookups > MAX_HISTORY_CALLS + 1) break;
+    // Server pauses are counted apart above; this counts the requests that ran tools.
+    if (stopReason !== "tool_use" || calls.length === 0 || ++lookups >= GUARD.maxRounds) break;
     newRound = true;
     messages.push({ role: "assistant", content: message.content as never });
     const results = [];

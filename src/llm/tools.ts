@@ -1,9 +1,7 @@
 import { z } from "zod";
+import { GUARD } from "../config/guardrails.ts";
 import type { HistoryQuery } from "../domain/turn.ts";
 import type { TurnOptions } from "./types.ts";
-
-/** Rounds of history lookups allowed in one reply, so a confused model cannot loop forever. */
-export const MAX_HISTORY_CALLS = 4;
 
 export const HISTORY_TOOL = {
   name: "search_history",
@@ -38,7 +36,7 @@ const Args = z.object({
 /** Runs one history lookup for any engine. A bad call becomes a message the model can correct. */
 export function runHistoryTool(options: TurnOptions, raw: unknown, round: number): string {
   if (!options.searchHistory) return "History search is not available.";
-  if (round >= MAX_HISTORY_CALLS) return "The history search limit for this reply is reached. Answer with what you already have.";
+  if (round >= GUARD.maxHistoryCalls) return "The history search limit for this reply is reached. Answer with what you already have.";
   const args = Args.safeParse(typeof raw === "string" ? safeJson(raw) : raw);
   if (!args.success) return "The arguments were not valid. Use query, pattern, from and to (YYYY-MM-DD), chat_id and page.";
   const { query, pattern, from, to, chat_id, page } = args.data;
@@ -53,9 +51,6 @@ export function runHistoryTool(options: TurnOptions, raw: unknown, round: number
   options.emit({ type: "status", text: "Checking past chats" });
   return options.searchHistory(request);
 }
-
-/** Calls to connected (MCP) tools allowed in one reply. */
-export const MAX_EXTERNAL_CALLS = 6;
 
 /** Tools to declare beside web search: history first, then any connected ones. */
 export function functionTools(options: TurnOptions): { name: string; description: string; parameters: Record<string, unknown> }[] {
@@ -72,7 +67,7 @@ export interface CallCounter {
 export async function runFunctionCall(options: TurnOptions, name: string | undefined, args: unknown, count: CallCounter): Promise<string> {
   if (name === HISTORY_TOOL.name) return runHistoryTool(options, args, count.history++);
   if (!name || !options.callTool || !options.tools?.some((t) => t.name === name)) return `There is no tool named ${name ?? "(none)"}.`;
-  if (count.external++ >= MAX_EXTERNAL_CALLS) return "The tool call limit for this reply is reached. Answer with what you already have.";
+  if (count.external++ >= GUARD.maxToolCalls) return "The tool call limit for this reply is reached. Answer with what you already have.";
   return options.callTool(name, typeof args === "string" ? (safeJson(args) ?? {}) : (args ?? {}));
 }
 

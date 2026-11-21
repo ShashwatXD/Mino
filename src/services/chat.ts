@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ChatRequest } from "../config/config.ts";
+import { GUARD } from "../config/guardrails.ts";
 import { buildContext } from "../context/build.ts";
 import { updateChatSummary } from "../context/summary.ts";
 import { nameChat } from "../context/title.ts";
@@ -18,9 +19,7 @@ import { estimateTokens, type SpendGuard } from "./spend-guard.ts";
 import type { TemporaryChats } from "./temporary-chats.ts";
 import { TraceRecorder } from "./tracer.ts";
 
-const HISTORY_TURNS = 20;
 const DRAFT_DEBOUNCE_MS = 400;
-const RUN_TIMEOUT_MS = 180_000;
 
 export interface ChatDeps {
   store: Repositories;
@@ -76,7 +75,7 @@ export function startChat(deps: ChatDeps, runs: RunRegistry, temporaryChats: Tem
   }
 
   for (const fact of extractFacts(userText)) deps.store.facts.save(fact.key, fact.value, now);
-  const history = fitHistory(deps.store.turns.ofThread(threadId, HISTORY_TURNS).filter(settled));
+  const history = fitHistory(deps.store.turns.ofThread(threadId, GUARD.historyTurns).filter(settled));
   const turnId = deps.store.turns.begin(threadId, now, userText);
   const record: TurnRecord = {
     draft: (text) => deps.store.turns.updateDraft(turnId, text),
@@ -99,7 +98,7 @@ function reply(deps: ChatDeps, runs: RunRegistry, run: Run, record: TurnRecord, 
   const deadline = setTimeout(() => {
     timedOut = true;
     run.abort.abort();
-  }, deps.runTimeoutMs ?? RUN_TIMEOUT_MS);
+  }, deps.runTimeoutMs ?? GUARD.replyTimeoutMs);
   deadline.unref();
 
   // Tokens stay in memory and reach disk on a debounce, so storage never slows the stream.

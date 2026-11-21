@@ -6,7 +6,7 @@ import { runTurn } from "../src/llm/providers/anthropic.ts";
 import { runGemini } from "../src/llm/providers/gemini.ts";
 import { runOpenAI } from "../src/llm/providers/openai.ts";
 import { EMPTY_TEXT } from "../src/llm/prompt.ts";
-import { MAX_HISTORY_CALLS } from "../src/llm/tools.ts";
+import { GUARD } from "../src/config/guardrails.ts";
 import type { TurnOptions } from "../src/llm/types.ts";
 import { searchHistory } from "../src/memory/search.ts";
 
@@ -136,8 +136,8 @@ for (const [name, make] of Object.entries(engines)) {
     const engine = make(false);
     const searched: HistoryQuery[] = [];
     const result = await engine.run(options(searched));
-    assert.equal(searched.length, MAX_HISTORY_CALLS);
-    assert.ok(engine.requests.length <= MAX_HISTORY_CALLS + 2);
+    assert.equal(searched.length, GUARD.maxHistoryCalls);
+    assert.ok(engine.requests.length <= GUARD.maxRounds);
     assert.match(JSON.stringify(engine.requests.at(-1)), /limit for this reply is reached/);
     assert.equal(result.text, EMPTY_TEXT);
   });

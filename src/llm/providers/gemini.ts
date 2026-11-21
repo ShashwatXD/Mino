@@ -3,8 +3,9 @@ import type { Effort } from "../../config/config.ts";
 import type { Source } from "../../domain/turn.ts";
 import { errorText, readableMessages, readableTools, snapshot } from "../call-record.ts";
 import { citedFirst, paragraphJoin, pastPairs } from "../format.ts";
-import { EMPTY_TEXT, MAX_OUTPUT_TOKENS, REFUSAL_TEXT, SYSTEM_PROMPT } from "../prompt.ts";
-import { type CallCounter, functionTools, MAX_HISTORY_CALLS, runFunctionCall } from "../tools.ts";
+import { GUARD } from "../../config/guardrails.ts";
+import { EMPTY_TEXT, REFUSAL_TEXT, SYSTEM_PROMPT } from "../prompt.ts";
+import { type CallCounter, functionTools, runFunctionCall } from "../tools.ts";
 import { type TurnOptions, type TurnResult } from "../types.ts";
 
 interface GeminiOptions extends TurnOptions {
@@ -47,7 +48,7 @@ export async function runGemini(options: GeminiOptions): Promise<TurnResult> {
     toolConfig: { includeServerSideToolInvocations: true },
     // Thought summaries come back as parts marked `thought`: never shown in the answer, only recorded in the trace.
     thinkingConfig: { thinkingLevel: THINKING[options.effort ?? "low"], includeThoughts: true },
-    maxOutputTokens: MAX_OUTPUT_TOKENS,
+    maxOutputTokens: GUARD.maxOutputTokens,
     abortSignal: signal,
   };
 
@@ -59,8 +60,7 @@ export async function runGemini(options: GeminiOptions): Promise<TurnResult> {
   const count: CallCounter = { history: 0, external: 0 };
   let newRound = false;
 
-  // One round past the limit lets the model answer after being told to stop searching.
-  for (let round = 0; round <= MAX_HISTORY_CALLS + 1; round++) {
+  for (let round = 0; round < GUARD.maxRounds; round++) {
     const sentAt = performance.now();
     const sent = options.onLlmCall ? snapshot({ model, contents, config }) : null;
     const parts: Part[] = [];
@@ -84,7 +84,7 @@ export async function runGemini(options: GeminiOptions): Promise<TurnResult> {
           system: SYSTEM_PROMPT,
           messages: readableMessages((sent as { contents: unknown[] }).contents),
           tools: readableTools(config.tools),
-          settings: { thinkingLevel: config.thinkingConfig.thinkingLevel, maxOutputTokens: MAX_OUTPUT_TOKENS, includeServerSideToolInvocations: true },
+          settings: { thinkingLevel: config.thinkingConfig.thinkingLevel, maxOutputTokens: config.maxOutputTokens, includeServerSideToolInvocations: true },
         },
         response: {
           text: roundText,

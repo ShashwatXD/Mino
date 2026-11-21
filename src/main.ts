@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { ConfigError, loadConfig } from "./config/config.ts";
+import { changedGuardrails, setGuardrails } from "./config/guardrails.ts";
 import { createRepositories } from "./db/repositories/index.ts";
 import { createApp } from "./http/app.ts";
 import { McpHub, readMcpConfig } from "./mcp/hub.ts";
@@ -21,6 +22,9 @@ try {
   process.exit(1);
 }
 for (const warning of config.warnings) console.warn(warning);
+setGuardrails(config.guardrails);
+const changed = changedGuardrails();
+if (changed.length) console.log(`Guardrails changed in .env: ${changed.join(", ")}`);
 
 const settings = new SettingsManager(join(ROOT, "data", "settings.json"), config);
 const active = settings.active();

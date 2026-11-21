@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { z } from "zod";
+import { GUARD } from "../config/guardrails.ts";
 import type { ExternalTool } from "../llm/types.ts";
 
 /** Same shape as Claude's and Cursor's mcp.json, so a server entry can be copied across unchanged. */
@@ -18,10 +19,6 @@ const ConfigSchema = z.object({
 });
 export type McpConfig = z.infer<typeof ConfigSchema>;
 
-const CONNECT_TIMEOUT_MS = 20_000;
-const CALL_TIMEOUT_MS = 30_000;
-/** Tool output is capped like a history result, so one call cannot flood the prompt. */
-export const MAX_TOOL_OUTPUT_CHARS = 12_000;
 
 /** The slice of an MCP client the hub uses, so tests can pass a fake. */
 export interface ToolClient {
@@ -95,7 +92,7 @@ export class McpHub {
         });
         const client = new Client({ name: "mino", version: "1.0.0" });
         try {
-          await client.connect(transport, { timeout: CONNECT_TIMEOUT_MS });
+          await client.connect(transport, { timeout: GUARD.mcpConnectTimeoutMs });
           const count = await this.add(server, client as unknown as ToolClient);
           log(`MCP: ${server} connected (${count} tools)`);
         } catch (err) {
@@ -116,7 +113,7 @@ export class McpHub {
     if (!route) return `There is no tool named ${name}.`;
     const input = args && typeof args === "object" && !Array.isArray(args) ? (args as Record<string, unknown>) : {};
     try {
-      const result = (await route.client.callTool({ name: route.tool, arguments: input }, undefined, { timeout: CALL_TIMEOUT_MS, signal })) as {
+      const result = (await route.client.callTool({ name: route.tool, arguments: input }, undefined, { timeout: GUARD.mcpCallTimeoutMs, signal })) as {
         content?: { type: string; text?: string }[];
         structuredContent?: unknown;
         isError?: boolean;
@@ -126,7 +123,8 @@ export class McpHub {
           .map((block) => (block.type === "text" ? (block.text ?? "") : `[${block.type} content omitted]`))
           .join("\n")
           .trim() || (result.structuredContent ? JSON.stringify(result.structuredContent) : "The tool returned nothing.");
-      const capped = text.length > MAX_TOOL_OUTPUT_CHARS ? `${text.slice(0, MAX_TOOL_OUTPUT_CHARS)}\n[cut at ${MAX_TOOL_OUTPUT_CHARS} characters]` : text;
+      const cap = GUARD.maxToolResultChars;
+      const capped = text.length > cap ? `${text.slice(0, cap)}\n[cut at ${cap} characters]` : text;
       return result.isError ? `The tool reported an error: ${capped}` : capped;
     } catch (err) {
       if (signal?.aborted) throw err;

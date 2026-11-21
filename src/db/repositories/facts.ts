@@ -1,3 +1,4 @@
+import { GUARD } from "../../config/guardrails.ts";
 import type { DatabaseSync } from "node:sqlite";
 import type { Fact } from "../../domain/turn.ts";
 
@@ -14,7 +15,7 @@ export class FactRepository {
       .run(key, value, statedAt);
   }
 
-  list(limit = 30): Fact[] {
+  list(limit = GUARD.maxFacts): Fact[] {
     const rows = this.db.prepare(`SELECT key, value, stated_at FROM facts ORDER BY stated_at DESC LIMIT ?`).all(limit) as {
       key: string;
       value: string;

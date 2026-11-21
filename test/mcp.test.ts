@@ -5,9 +5,10 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { runGemini } from "../src/llm/providers/gemini.ts";
 import { runOpenAI } from "../src/llm/providers/openai.ts";
-import { MAX_EXTERNAL_CALLS, runFunctionCall } from "../src/llm/tools.ts";
+import { GUARD } from "../src/config/guardrails.ts";
+import { runFunctionCall } from "../src/llm/tools.ts";
 import type { TurnOptions } from "../src/llm/types.ts";
-import { MAX_TOOL_OUTPUT_CHARS, McpHub, readMcpConfig, type ToolClient } from "../src/mcp/hub.ts";
+import { McpHub, readMcpConfig, type ToolClient } from "../src/mcp/hub.ts";
 
 function fakeClient(reply: (name: string, args: unknown) => unknown = () => ({ content: [{ type: "text", text: "ok" }] })) {
   const calls: { name: string; arguments?: unknown }[] = [];
@@ -78,7 +79,7 @@ test("tool errors and long output come back as text the model can read", async (
     () => {
       throw new Error("server went away");
     },
-    () => ({ content: [{ type: "text", text: "x".repeat(MAX_TOOL_OUTPUT_CHARS + 50) }] }),
+    () => ({ content: [{ type: "text", text: "x".repeat(GUARD.maxToolResultChars + 50) }] }),
     () => ({ content: [{ type: "image" }] }),
   ];
   let i = 0;
@@ -96,10 +97,10 @@ test("connected tool calls are limited per reply, and unknown names are refused"
     callTool: async () => `result ${++ran}`,
   });
   const count = { history: 0, external: 0 };
-  for (let i = 0; i < MAX_EXTERNAL_CALLS; i++) assert.match(await runFunctionCall(options, "s__t", "{}", count), /^result/);
+  for (let i = 0; i < GUARD.maxToolCalls; i++) assert.match(await runFunctionCall(options, "s__t", "{}", count), /^result/);
   assert.match(await runFunctionCall(options, "s__t", {}, count), /limit for this reply/);
   assert.match(await runFunctionCall(options, "other", {}, count), /no tool named other/);
-  assert.equal(ran, MAX_EXTERNAL_CALLS);
+  assert.equal(ran, GUARD.maxToolCalls);
 });
 
 test("Gemini declares connected tools and feeds their results back", async () => {
