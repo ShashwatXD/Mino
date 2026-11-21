@@ -3,8 +3,9 @@ import type { ResponseInput } from "openai/resources/responses/responses";
 import type { Effort } from "../../config/config.ts";
 import type { Source } from "../../domain/turn.ts";
 import { EMPTY_TEXT, MAX_OUTPUT_TOKENS, MAX_SEARCHES, SYSTEM_PROMPT } from "../prompt.ts";
+import { errorText, readableMessages, readableTools, snapshot } from "../call-record.ts";
 import { citedFirst, paragraphJoin, pastPairs } from "../format.ts";
-import { HISTORY_TOOL, MAX_HISTORY_CALLS, runHistoryTool } from "../tools.ts";
+import { type CallCounter, functionTools, MAX_HISTORY_CALLS, runFunctionCall } from "../tools.ts";
 import { type TurnOptions, type TurnResult } from "../types.ts";
 
 interface OpenAIOptions extends TurnOptions {
@@ -32,7 +33,7 @@ export async function runOpenAI(options: OpenAIOptions): Promise<TurnResult> {
   const input = openaiInput(options);
   const tools = [
     { type: "web_search" as const },
-    ...(options.searchHistory ? [{ type: "function" as const, name: HISTORY_TOOL.name, description: HISTORY_TOOL.description, parameters: HISTORY_TOOL.parameters, strict: false }] : []),
+    ...functionTools(options).map((t) => ({ type: "function" as const, name: t.name, description: t.description, parameters: t.parameters, strict: false })),
   ];
 
   const sources = new Map<string, Source>();
@@ -40,74 +41,120 @@ export async function runOpenAI(options: OpenAIOptions): Promise<TurnResult> {
   let text = "";
   let stopReason: string | null = null;
   const usage = { model, inputTokens: 0, outputTokens: 0, searches: 0 };
-  let historyCalls = 0;
+  const count: CallCounter = { history: 0, external: 0 };
   let newRound = false;
 
   // One round past the limit lets the model answer after being told to stop searching.
   for (let round = 0; round <= MAX_HISTORY_CALLS + 1; round++) {
-    const stream = client.responses.stream(
-      {
-        model,
-        instructions: SYSTEM_PROMPT,
-        input,
-        tools,
-        reasoning: { effort: REASONING[options.effort ?? "low"] },
-        max_output_tokens: MAX_OUTPUT_TOKENS,
-        max_tool_calls: options.maxSearches ?? MAX_SEARCHES,
-      } as never,
-      { signal },
-    );
+    const params = {
+      model,
+      instructions: SYSTEM_PROMPT,
+      input,
+      tools,
+      reasoning: { effort: REASONING[options.effort ?? "low"] },
+      max_output_tokens: MAX_OUTPUT_TOKENS,
+      max_tool_calls: options.maxSearches ?? MAX_SEARCHES,
+    };
+    const sentAt = performance.now();
+    const sent = options.onLlmCall ? snapshot(params) : null;
     let output: any[] = [];
+    let finalResponse: any = null;
+    let roundText = "";
+    const roundQueries: string[] = [];
+    const record = (error?: unknown) =>
+      options.onLlmCall?.({
+        purpose: "answer",
+        round: round + 1,
+        provider: "openai",
+        model,
+        startedAt: sentAt,
+        durationMs: Math.round(performance.now() - sentAt),
+        request: {
+          system: SYSTEM_PROMPT,
+          messages: readableMessages((sent as { input: unknown[] }).input),
+          tools: readableTools(tools),
+          settings: { reasoning: params.reasoning, max_output_tokens: params.max_output_tokens, max_tool_calls: params.max_tool_calls },
+        },
+        response: {
+          text: roundText,
+          thoughts: output.filter((i) => i.type === "reasoning").flatMap((i) => (i.summary ?? []).map((s: any) => s.text)).join("\n\n"),
+          toolCalls: output.filter((i) => i.type === "function_call").map((i) => ({ name: i.name, args: i.arguments })),
+          stopReason: finalResponse?.status ?? null,
+          webQueries: roundQueries,
+          sources: [],
+        },
+        usage: {
+          model,
+          inputTokens: finalResponse?.usage?.input_tokens ?? 0,
+          outputTokens: finalResponse?.usage?.output_tokens ?? 0,
+          searches: output.filter((i) => i.type === "web_search_call").length,
+          thinkingTokens: finalResponse?.usage?.output_tokens_details?.reasoning_tokens ?? 0,
+          cachedTokens: finalResponse?.usage?.input_tokens_details?.cached_tokens ?? 0,
+        },
+        raw: { request: sent, response: snapshot(finalResponse) },
+        ...(error ? { error: errorText(error) } : {}),
+      });
 
-    for await (const event of stream as AsyncIterable<any>) {
-      switch (event.type) {
-        case "response.output_text.delta":
-        case "response.refusal.delta":
-          const piece = paragraphJoin(text, event.delta, newRound);
-          newRound = false;
-          text += piece;
-          emit({ type: "text", text: piece });
-          break;
-        case "response.web_search_call.searching":
-          emit({ type: "status", text: "Searching the web" });
-          break;
-        case "response.output_text.annotation.added":
-          if (event.annotation?.type === "url_citation" && event.annotation.url) {
-            const { url, title } = event.annotation;
-            sources.set(url, { url, title: title || url, cited: true });
-          }
-          break;
-        case "response.output_item.done": {
-          const action = event.item?.type === "web_search_call" ? event.item.action : undefined;
-          if (event.item?.type === "web_search_call") usage.searches++;
-          if (action?.type === "search") {
-            for (const query of action.queries ?? (action.query ? [action.query] : [])) {
-              if (!queries.includes(query)) {
-                queries.push(query);
-                emit({ type: "search", query });
+    try {
+      const stream = client.responses.stream(params as never, { signal });
+
+      for await (const event of stream as AsyncIterable<any>) {
+        switch (event.type) {
+          case "response.output_text.delta":
+          case "response.refusal.delta":
+            const piece = paragraphJoin(text, event.delta, newRound);
+            newRound = false;
+            text += piece;
+            roundText += piece;
+            emit({ type: "text", text: piece });
+            break;
+          case "response.web_search_call.searching":
+            emit({ type: "status", text: "Searching the web" });
+            break;
+          case "response.output_text.annotation.added":
+            if (event.annotation?.type === "url_citation" && event.annotation.url) {
+              const { url, title } = event.annotation;
+              sources.set(url, { url, title: title || url, cited: true });
+            }
+            break;
+          case "response.output_item.done": {
+            const action = event.item?.type === "web_search_call" ? event.item.action : undefined;
+            if (event.item?.type === "web_search_call") usage.searches++;
+            if (action?.type === "search") {
+              for (const query of action.queries ?? (action.query ? [action.query] : [])) {
+                if (!queries.includes(query)) {
+                  queries.push(query);
+                  roundQueries.push(query);
+                  emit({ type: "search", query });
+                }
               }
             }
+            break;
           }
-          break;
+          case "response.completed":
+          case "response.incomplete":
+            stopReason = event.response?.status ?? event.type;
+            usage.inputTokens += event.response?.usage?.input_tokens ?? 0;
+            usage.outputTokens += event.response?.usage?.output_tokens ?? 0;
+            output = event.response?.output ?? [];
+            finalResponse = event.response ?? null;
+            break;
+          case "response.failed":
+            throw new Error(event.response?.error?.message ?? "The response failed");
         }
-        case "response.completed":
-        case "response.incomplete":
-          stopReason = event.response?.status ?? event.type;
-          usage.inputTokens += event.response?.usage?.input_tokens ?? 0;
-          usage.outputTokens += event.response?.usage?.output_tokens ?? 0;
-          output = event.response?.output ?? [];
-          break;
-        case "response.failed":
-          throw new Error(event.response?.error?.message ?? "The response failed");
       }
-    }
 
-    const calls = output.filter((item) => item.type === "function_call" && item.name === HISTORY_TOOL.name);
+    } catch (err) {
+      record(err);
+      throw err;
+    }
+    record();
+    const calls = output.filter((item) => item.type === "function_call");
     if (calls.length === 0) break;
     // Output items, reasoning included, go back unchanged so the model continues its own chain.
     newRound = true;
     input.push(...output);
-    for (const call of calls) input.push({ type: "function_call_output", call_id: call.call_id, output: runHistoryTool(options, call.arguments, historyCalls++) } as never);
+    for (const call of calls) input.push({ type: "function_call_output", call_id: call.call_id, output: await runFunctionCall(options, call.name, call.arguments, count) } as never);
   }
 
   if (!text) {

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "contextos": {
+      "command": "/path/to/context-os/.venv/bin/contextos",
+      "args": ["mcp"]
+    }
+  }
+}

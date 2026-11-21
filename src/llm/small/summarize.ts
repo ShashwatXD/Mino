@@ -19,7 +19,7 @@ Rules:
 - Reply with only the summary.`;
 
 export function createSummarizer(provider: Provider, apiKey: string, model: string): Summarizer {
-  const complete = completer(provider, apiKey, model);
+  const complete = completer(provider, apiKey, model, "summary");
   return (request, signal) =>
     complete(
       SUMMARIZE_INSTRUCTIONS,

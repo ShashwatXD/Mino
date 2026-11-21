@@ -1,5 +1,6 @@
 import type { Effort } from "../config/config.ts";
 import type { HistoryQuery, Source, Turn } from "../domain/turn.ts";
+import type { RecordCall } from "./call-record.ts";
 
 export type AgentEvent =
   | { type: "status"; text: string }
@@ -22,6 +23,13 @@ export interface TurnResult {
   usage?: Usage;
 }
 
+/** A tool from an MCP server, described to the model like search_history. */
+export interface ExternalTool {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
 export interface TurnOptions {
   history: Turn[];
   userText: string;
@@ -34,6 +42,11 @@ export interface TurnOptions {
   effort?: Effort;
   /** The history tool's implementation. Engines only describe it to the model and pass calls through. */
   searchHistory?: (query: HistoryQuery) => string;
+  /** Tools from connected MCP servers, and how to run them. Engines pass calls through. */
+  tools?: ExternalTool[];
+  callTool?: (name: string, args: unknown) => Promise<string>;
+  /** Called once per API request with everything sent and received, for the traces page. */
+  onLlmCall?: RecordCall;
 }
 
 export interface Engine {

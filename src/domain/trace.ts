@@ -6,7 +6,16 @@ export interface Span {
   startMs: number;
   durationMs: number;
   attributes: Record<string, SpanValue>;
+  /** Everything about the step, shown under "Show more details": a model call's full request and response, or a tool's full input and output. */
+  detail?: SpanDetail;
 }
+
+export type SpanDetail =
+  | ({ kind: "llm"; costUsd: number } & Omit<import("../llm/call-record.ts").LlmCallRecord, "startedAt">)
+  | { kind: "tool"; server: string; tool: string; arguments: unknown; result: string }
+  | { kind: "history"; query: Record<string, unknown>; result: string }
+  | { kind: "prompt"; context: string; historyTurns: number }
+  | { kind: "web_search"; query: string };
 
 /** Everything one reply did, for the traces page and the eval report. */
 export interface Trace {
@@ -22,6 +31,10 @@ export interface Trace {
   outputTokens: number;
   webSearches: number;
   historyCalls: number;
+  /** API requests to a model: each answer round, plus title and summary. Older traces lack it. */
+  llmCalls?: number;
+  /** Calls to connected (MCP) tools. */
+  toolCalls?: number;
   costUsd: number;
   spans: Span[];
 }

@@ -54,6 +54,28 @@ export function runHistoryTool(options: TurnOptions, raw: unknown, round: number
   return options.searchHistory(request);
 }
 
+/** Calls to connected (MCP) tools allowed in one reply. */
+export const MAX_EXTERNAL_CALLS = 6;
+
+/** Tools to declare beside web search: history first, then any connected ones. */
+export function functionTools(options: TurnOptions): { name: string; description: string; parameters: Record<string, unknown> }[] {
+  return [...(options.searchHistory ? [HISTORY_TOOL as unknown as { name: string; description: string; parameters: Record<string, unknown> }] : []), ...(options.tools ?? [])];
+}
+
+/** Counts calls across one reply's rounds, so each kind keeps its own limit. */
+export interface CallCounter {
+  history: number;
+  external: number;
+}
+
+/** Runs one function call by name, for any engine. Unknown names and over-limit calls become text the model can act on. */
+export async function runFunctionCall(options: TurnOptions, name: string | undefined, args: unknown, count: CallCounter): Promise<string> {
+  if (name === HISTORY_TOOL.name) return runHistoryTool(options, args, count.history++);
+  if (!name || !options.callTool || !options.tools?.some((t) => t.name === name)) return `There is no tool named ${name ?? "(none)"}.`;
+  if (count.external++ >= MAX_EXTERNAL_CALLS) return "The tool call limit for this reply is reached. Answer with what you already have.";
+  return options.callTool(name, typeof args === "string" ? (safeJson(args) ?? {}) : (args ?? {}));
+}
+
 function safeJson(text: string): unknown {
   try {
     return JSON.parse(text || "{}");

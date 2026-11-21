@@ -13,6 +13,6 @@ Rules:
 - Reply with only the title.`;
 
 export function createTitler(provider: Provider, apiKey: string, model: string): Titler {
-  const complete = completer(provider, apiKey, model);
+  const complete = completer(provider, apiKey, model, "title");
   return (message, signal) => complete(TITLE_INSTRUCTIONS, `First message:\n${message}`, signal);
 }

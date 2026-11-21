@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { ConfigError, loadConfig } from "./config/config.ts";
 import { createRepositories } from "./db/repositories/index.ts";
 import { createApp } from "./http/app.ts";
+import { McpHub, readMcpConfig } from "./mcp/hub.ts";
 import { ROOT } from "./http/static.ts";
 import { NoEngineError } from "./services/errors.ts";
 import { SettingsManager } from "./services/settings.ts";
@@ -29,12 +30,24 @@ else console.warn("No API key yet. Add one in the app or in .env.");
 const store = createRepositories(join(ROOT, "data", "memory.db"));
 store.turns.recoverInterrupted();
 
+// Tools from MCP servers listed in mcp.json (same format as Claude's), offered in normal chats.
+const mcp = new McpHub();
+const { config: mcpConfig, warning: mcpWarning } = readMcpConfig(join(ROOT, "mcp.json"));
+if (mcpWarning) console.warn(mcpWarning);
+await mcp.connectAll(mcpConfig);
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.once(signal, () => {
+    mcp.close().finally(() => process.exit(0));
+  });
+}
+
 const app = createApp({
   store,
   settings,
   guard: new SpendGuard(store.usage, config.limits),
   currentModel: () => settings.active()?.model ?? "unknown",
   helpers: () => settings.helpers(),
+  tools: { list: () => mcp.tools(), call: (name, args, signal) => mcp.call(name, args, signal) },
   run: (options) => settings.engine()?.run(options) ?? Promise.reject(new NoEngineError()),
 });
 

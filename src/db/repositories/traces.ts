@@ -6,10 +6,13 @@ const KEEP = 500;
 export class TraceRepository {
   constructor(private db: DatabaseSync) {}
 
-  /** A reply that ends after its chat was deleted finds no turns, so its trace is dropped. Only the newest are kept. */
+  /**
+   * A reply that ends after its chat was deleted finds no turns, so its trace is dropped. Only the newest are kept.
+   * Saving the same id again replaces it, so steps that finish after the reply (the chat summary) can be added.
+   */
   save(trace: Trace): void {
     this.db
-      .prepare(`INSERT INTO traces (id, thread_id, started_at, data) SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM turns WHERE thread_id = ?)`)
+      .prepare(`INSERT OR REPLACE INTO traces (id, thread_id, started_at, data) SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM turns WHERE thread_id = ?)`)
       .run(trace.id, trace.threadId, trace.startedAt, JSON.stringify(trace), trace.threadId);
     this.db.prepare(`DELETE FROM traces WHERE id NOT IN (SELECT id FROM traces ORDER BY started_at DESC LIMIT ?)`).run(KEEP);
   }

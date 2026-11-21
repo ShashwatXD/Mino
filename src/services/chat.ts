@@ -6,7 +6,8 @@ import { nameChat } from "../context/title.ts";
 import type { Repositories } from "../db/repositories/index.ts";
 import type { Source, Turn, TurnStatus } from "../domain/turn.ts";
 import type { Helpers } from "../llm/small/index.ts";
-import type { AgentEvent, TurnOptions, TurnResult } from "../llm/types.ts";
+import type { LlmCallRecord } from "../llm/call-record.ts";
+import type { AgentEvent, ExternalTool, TurnOptions, TurnResult } from "../llm/types.ts";
 import { extractFacts } from "../memory/facts.ts";
 import { fitHistory } from "../memory/history.ts";
 import { searchHistory } from "../memory/search.ts";
@@ -30,6 +31,11 @@ export interface ChatDeps {
   now?: () => number;
   runTimeoutMs?: number;
   draftMs?: number;
+  /** Tools from connected MCP servers. */
+  tools?: {
+    list: () => ExternalTool[];
+    call: (name: string, args: unknown, signal?: AbortSignal) => Promise<string>;
+  };
 }
 
 export type StartResult = { run: Run } | { status: 409 | 429; message: string };
@@ -126,15 +132,20 @@ function reply(deps: ChatDeps, runs: RunRegistry, run: Run, record: TurnRecord, 
     const naming =
       helpers?.title && !temporary && history.length === 0 && !deps.guard?.overBudget()
         ? (trace ? trace.stepAsync("title", () => nameChat(deps.store, helpers.title!, run.threadId, userText)) : nameChat(deps.store, helpers.title, run.threadId, userText))
-            .then((used) => {
-              deps.guard?.record(used);
-              trace?.smallModel(used);
+            .then((done) => {
+              deps.guard?.record(done.usage);
+              trace?.smallModel(done.usage);
+              if (done.record) trace?.llmCall(done.record);
             })
-            .catch(() => {})
+            .catch((err) => {
+              if (err?.record) trace?.llmCall(err.record);
+            })
         : null;
     try {
       const build = () => buildContext({ store: deps.store, text: userText, temporary, now, tz, threadId: run.threadId, history });
-      const built = trace ? trace.step("build_prompt", build, (b) => ({ chars: b.context.length, historyTurns: history.length })) : build();
+      const built = trace
+        ? trace.step("build_prompt", build, (b) => ({ chars: b.context.length, historyTurns: history.length }), (b) => ({ kind: "prompt", context: b.context, historyTurns: history.length }))
+        : build();
       context = built.context;
       run.abort.signal.throwIfAborted();
 
@@ -149,6 +160,7 @@ function reply(deps: ChatDeps, runs: RunRegistry, run: Run, record: TurnRecord, 
         maxSearches: built.maxSearches,
         effort: thinkMore ? "high" : undefined,
         // A temporary chat gets no history tool, so nothing from the user's past reaches it.
+        onLlmCall: trace ? (record) => trace.llmCall(record) : undefined,
         searchHistory: temporary
           ? undefined
           : (query) => {
@@ -157,21 +169,43 @@ function reply(deps: ChatDeps, runs: RunRegistry, run: Run, record: TurnRecord, 
               trace?.history(query, found, Math.round(performance.now() - started));
               return found;
             },
+        // Connected tools reach personal data too, so a temporary chat gets none of them either.
+        ...(deps.tools && !temporary && deps.tools.list().length
+          ? {
+              tools: deps.tools.list(),
+              callTool: async (name: string, args: unknown) => {
+                emit({ type: "status", text: `Using ${name.split("__")[0]}` });
+                const started = performance.now();
+                const result = await deps.tools!.call(name, args, run.abort.signal);
+                trace?.tool(name, args, result, Math.round(performance.now() - started));
+                return result;
+              },
+            }
+          : {}),
       });
       const result = trace
-        ? await trace.stepAsync("model", answer, (r) => ({ model, effort: thinkMore ? "high" : "default", inputTokens: r.usage?.inputTokens ?? 0, outputTokens: r.usage?.outputTokens ?? 0, stopReason: r.stopReason ?? "" }))
+        ? await trace.stepAsync("model", answer, (r) => ({ model, rounds: trace.answerRounds, effort: thinkMore ? "high" : "default", inputTokens: r.usage?.inputTokens ?? 0, outputTokens: r.usage?.outputTokens ?? 0, stopReason: r.stopReason ?? "" }))
         : await answer();
       clearDraftTimer();
       record.finish({ assistantText: result.text, sources: result.sources, queries: result.queries, status: "ok" });
       if (result.usage) deps.guard?.record(result.usage);
       // The title call started with the reply and is capped at a few seconds, so the sidebar can show it on "done".
       await naming;
-      if (trace) deps.store.traces.save(trace.finish("ok", model, result.usage));
+      const saved = trace ? trace.finish("ok", model, result.usage) : null;
+      if (saved) deps.store.traces.save(saved);
       run.emit({ type: "done", threadId: run.threadId });
       if (helpers?.summarize && !temporary && !deps.guard?.overBudget()) {
+        // The summary runs after the reply, so its call is added to the trace that was already saved.
+        const addToTrace = (record?: LlmCallRecord) => {
+          if (trace && saved && record) deps.store.traces.save(trace.late(saved, record));
+        };
         updateChatSummary(deps.store, helpers.summarize, run.threadId)
-          .then((used) => used && deps.guard?.record(used))
-          .catch(() => {});
+          .then((done) => {
+            if (!done) return;
+            deps.guard?.record(done.usage);
+            addToTrace(done.record);
+          })
+          .catch((err) => addToTrace(err?.record));
       }
     } catch (err) {
       clearDraftTimer();
