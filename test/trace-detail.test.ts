@@ -131,8 +131,8 @@ test("a trace counts model and tool calls and keeps their full details, summary 
   assert.equal(trace.llmCalls, 4);
   assert.equal(trace.toolCalls, 1);
   const names = trace.spans.map((s) => s.name);
-  for (const name of ["build_prompt", "llm · title", "llm · round 1", "contextos__search_messages", "llm · round 2", "llm · summary", "model"]) assert.ok(names.includes(name), name);
-  assert.equal(trace.spans.find((s) => s.name === "model")!.attributes.rounds, 2);
+  for (const name of ["build_prompt", "llm · title", "llm · round 1", "contextos__search_messages", "llm · round 2", "llm · summary"]) assert.ok(names.includes(name), name);
+  assert.ok(!names.includes("model") && !names.includes("title"), "the old wrapper rows are gone");
   assert.equal(trace.spans.find((s) => s.name === "llm · round 1")!.attributes.asked_for, "contextos__search_messages");
   const tool = trace.spans.find((s) => s.name === "contextos__search_messages")!.detail as any;
   assert.deepEqual([tool.server, tool.tool, tool.arguments, tool.result], ["contextos", "search_messages", { query: "x" }, "two messages\nmore lines"]);

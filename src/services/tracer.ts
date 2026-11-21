@@ -16,8 +16,6 @@ export class TraceRecorder {
   private historyCalls = 0;
   private toolCalls = 0;
   private llmCalls = 0;
-  /** Answer rounds so far: one API request each. */
-  answerRounds = 0;
   private extraCost = 0;
 
   constructor(
@@ -88,7 +86,6 @@ export class TraceRecorder {
   /** One API request to a model, with everything sent and received. */
   llmCall(record: LlmCallRecord): void {
     this.llmCalls++;
-    if (record.purpose === "answer") this.answerRounds++;
     this.spans.push(this.llmSpan(record));
   }
 

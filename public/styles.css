@@ -192,7 +192,8 @@ body.is-empty #log .inner{min-height:100%;display:flex;flex-direction:column;jus
 @keyframes cat-tail{0%,100%{transform:rotate(0)}50%{transform:rotate(10deg)}}
 @keyframes cat-blink{0%,94%,100%{transform:scaleY(1)}97%{transform:scaleY(.1)}}
 @media (prefers-reduced-motion:reduce){.cat,.cat .cat-tail,.cat .cat-eyes{animation:none}}
-.traces{width:100%;max-width:1080px;margin:0 auto;padding:clamp(20px,6vh,56px) 24px 64px;display:grid;gap:22px}
+.traces{width:100%;max-width:1080px;margin:0 auto;padding:clamp(20px,6vh,56px) 24px 64px;display:grid;grid-template-columns:minmax(0,1fr);gap:22px}
+@media (max-width:640px){.traces{padding-left:16px;padding-right:16px}}
 .traces h1{font:400 clamp(44px,8.6vw,72px)/1 var(--display);text-transform:uppercase;margin:0}
 .traces .aside{margin:0;max-width:68ch}
 .trace-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
@@ -200,14 +201,17 @@ body.is-empty #log .inner{min-height:100%;display:flex;flex-direction:column;jus
 .trace-summary strong{font:400 30px/1.1 var(--display);font-variant-numeric:tabular-nums}
 .trace-summary span{color:var(--ink-60)}
 .trace-table{overflow-x:auto}
-.trace-table table{border-collapse:collapse;width:100%;min-width:820px;font-size:14px}
-.trace-table th{text-align:left;color:var(--ink-60);font-weight:400;padding:8px 10px}
-.trace-table td{padding:10px;border-top:1px solid var(--ink-12);vertical-align:top}
+.trace-table table{border-collapse:collapse;width:100%;min-width:760px;font-size:14px}
+.trace-table th{text-align:left;color:var(--ink-60);font-weight:400;padding:8px;white-space:nowrap;letter-spacing:.06em}
+.trace-table td{padding:10px 8px;border-top:1px solid var(--ink-12);vertical-align:top;white-space:nowrap}
 .trace-table tr[tabindex]{cursor:pointer}
 .trace-table tr[tabindex]:hover,.trace-table tr.open{background:var(--ink-06)}
 .trace-table tr[tabindex]:focus-visible{outline:2px solid var(--ink);outline-offset:-2px}
 .trace-table .num{font-family:var(--mono);font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
-.trace-table .question{max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* The question takes whatever width is left and truncates, so the numbers on the right never get cut off. */
+.trace-table .question{width:100%;max-width:0;overflow:hidden;text-overflow:ellipsis}
+.trace-table .model-name{font:400 12px/1.5 var(--mono)}
+.trace-detail[hidden]{display:none}
 .trace-table .empty{color:var(--ink-60);padding:28px 10px}
 .chip{display:inline-block;font:400 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;padding:5px 8px;border-radius:999px}
 .chip.good{background:var(--ink-12)}

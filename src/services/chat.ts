@@ -131,7 +131,8 @@ function reply(deps: ChatDeps, runs: RunRegistry, run: Run, record: TurnRecord, 
     const helpers = deps.helpers?.();
     const naming =
       helpers?.title && !temporary && history.length === 0 && !deps.guard?.overBudget()
-        ? (trace ? trace.stepAsync("title", () => nameChat(deps.store, helpers.title!, run.threadId, userText)) : nameChat(deps.store, helpers.title, run.threadId, userText))
+        ? // The call itself is traced as "llm · title" with its full request and response.
+          nameChat(deps.store, helpers.title, run.threadId, userText)
             .then((done) => {
               deps.guard?.record(done.usage);
               trace?.smallModel(done.usage);
@@ -183,9 +184,8 @@ function reply(deps: ChatDeps, runs: RunRegistry, run: Run, record: TurnRecord, 
             }
           : {}),
       });
-      const result = trace
-        ? await trace.stepAsync("model", answer, (r) => ({ model, rounds: trace.answerRounds, effort: thinkMore ? "high" : "default", inputTokens: r.usage?.inputTokens ?? 0, outputTokens: r.usage?.outputTokens ?? 0, stopReason: r.stopReason ?? "" }))
-        : await answer();
+      // Each API request inside the answer is traced on its own as "llm · round N".
+      const result = await answer();
       clearDraftTimer();
       record.finish({ assistantText: result.text, sources: result.sources, queries: result.queries, status: "ok" });
       if (result.usage) deps.guard?.record(result.usage);

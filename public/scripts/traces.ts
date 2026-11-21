@@ -54,7 +54,7 @@ function summary(traces: TraceView[]): void {
 function list(traces: TraceView[]): void {
   const table = $<HTMLTableElement>("list");
   const head = make("tr");
-  for (const label of ["When", "Question", "Model", "First text", "Total", "LLM calls", "Tools", "History", "Web", "Cost", "Status"]) head.append(make("th", "mono", label));
+  for (const label of ["When", "Question", "Model", "First text", "Total", "LLM", "Tools", "History", "Web", "Cost", "Status"]) head.append(make("th", "mono", label));
   table.replaceChildren(head);
   if (!traces.length) {
     const row = make("tr");
@@ -70,7 +70,7 @@ function list(traces: TraceView[]): void {
     row.append(
       make("td", "num", when.format(t.startedAt)),
       make("td", "question", t.question),
-      make("td", "mono", t.model),
+      make("td", "model-name", t.model),
       make("td", "num", seconds(t.firstTokenMs)),
       make("td", "num", seconds(t.totalMs)),
       make("td", "num", t.llmCalls === undefined ? "—" : String(t.llmCalls)),
@@ -95,8 +95,12 @@ async function show(id: string, row: HTMLElement): Promise<void> {
   const trace: TraceView = await (await fetch(`/api/trace?id=${encodeURIComponent(id)}`)).json();
   const detail = $("detail");
   detail.hidden = false;
-  const total = Math.max(trace.totalMs, 1);
-  const lines = (trace.spans ?? []).map((span) => {
+  // Steps that end after the reply (the chat summary) widen the scale, so every bar stays inside its track.
+  const total = Math.max(trace.totalMs, ...(trace.spans ?? []).map((s) => s.startMs + s.durationMs), 1);
+  // Older traces also have "model" and "title" rows that wrap the same calls the "llm ·" rows show, so those are hidden.
+  const detailed = (trace.spans ?? []).some((s) => s.name.startsWith("llm · "));
+  const spans = (trace.spans ?? []).filter((s) => !(detailed && (s.name === "model" || s.name === "title")));
+  const lines = spans.map((span) => {
     const line = make("div", "span-row");
     const bar = make("div", "span-track");
     const fill = make("i", span.durationMs ? "" : "point");

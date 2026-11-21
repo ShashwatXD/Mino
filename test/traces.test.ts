@@ -45,7 +45,7 @@ test("a reply is saved as a trace with its steps, timings and cost", async () =>
   assert.equal(trace.webSearches, 1);
   assert.ok(trace.firstTokenMs !== null && trace.firstTokenMs <= trace.totalMs);
   assert.ok(trace.costUsd > 0);
-  assert.deepEqual([...new Set(trace.spans.map((s) => s.name))].sort(), ["build_prompt", "model", "search_history", "web_search"]);
+  assert.deepEqual([...new Set(trace.spans.map((s) => s.name))].sort(), ["build_prompt", "search_history", "web_search"]);
   const lookup = trace.spans.find((s) => s.name === "search_history")!;
   assert.equal(lookup.attributes.from, "2026-11-03");
   assert.match(String(lookup.attributes.result), /^Turns 1–1 of 1/);
@@ -58,7 +58,7 @@ test("the API lists traces without their steps, and returns one in full", async 
   assert.equal(list.length, 1);
   assert.equal((list[0] as Partial<Trace>).spans, undefined);
   const full: Trace = await (await fetch(`${base}/api/trace?id=${list[0].id}`)).json();
-  assert.ok(full.spans.length >= 4);
+  assert.ok(full.spans.length >= 3);
   assert.equal((await fetch(`${base}/api/trace?id=missing`)).status, 404);
 });
 
